@@ -1,5 +1,4 @@
 import Sidebar from "../components/Sidebar";
-import Topbar from "../components/Topbar";
 
 function Instruction() {
   const curriculumTracks = [
@@ -28,39 +27,49 @@ function Instruction() {
       <Sidebar />
 
       <div className="content">
-        <Topbar />
-
-        <h1 className="pageTitle">Instruction</h1>
+        <div className="studentsHeader">
+          <h1 className="pageTitle">Instruction</h1>
+          <p className="mutedText">Curriculum overview, syllabi, and lesson snapshots.</p>
+        </div>
 
         <div className="dashboardGrid">
-          <div className="infoCard">
-            <h3>Curriculum Overview</h3>
-            <ul>
+          <div className="dashPanel">
+            <div className="dashPanelHeader">
+              <h3>Curriculum Overview</h3>
+              <span className="dashBadge">{curriculumTracks.length} tracks</span>
+            </div>
+            <ul className="compactList">
               {curriculumTracks.map((c, idx) => (
                 <li key={idx}>
-                  <strong>{c.program}</strong> – {c.focus}
+                  <strong>{c.program}</strong> — {c.focus}
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="infoCard">
-            <h3>Sample Syllabi</h3>
-            <ul>
+          <div className="dashPanel">
+            <div className="dashPanelHeader">
+              <h3>Sample Syllabi</h3>
+              <span className="dashBadge">{sampleSyllabi.length} items</span>
+            </div>
+            <ul className="compactList">
               {sampleSyllabi.map((s) => (
                 <li key={s.code}>
-                  <strong>{s.code}</strong> – {s.title} ({s.term})
+                  <strong>{s.code}</strong> — {s.title} <span className="mutedText">({s.term})</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="infoCard">
-            <h3>Lesson Snapshots</h3>
-            <ul>
+          <div className="dashPanel">
+            <div className="dashPanelHeader">
+              <h3>Lesson Snapshots</h3>
+              <span className="dashBadge">{sampleLessons.length} lessons</span>
+            </div>
+            <ul className="compactList">
               {sampleLessons.map((l, idx) => (
                 <li key={idx}>
-                  {l.course}: {l.topic} ({l.type})
+                  <strong>{l.course}</strong> — {l.topic} <span className="mutedText">({l.type})</span>
                 </li>
               ))}
             </ul>

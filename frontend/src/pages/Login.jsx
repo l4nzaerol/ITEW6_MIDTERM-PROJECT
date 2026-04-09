@@ -14,24 +14,20 @@ function Login() {
       localStorage.setItem("ccs_isAuthenticated", "true");
       nav("/dashboard");
     } else {
-      setError("Invalid username or password. Try admin / admin.");
+      setError("Invalid username or password.");
     }
   };
 
   return (
     <div className="loginPage">
-      <div className="loginBrandPanel">
-        <h1>CCS COMPREHENSIVE PROFILING SYSTEM</h1>
-        <p>
-          Profile students across academic, non-academic, skills, affiliations,
-          and violations, and generate targeted reports for contests,
-          try-outs, and events.
-        </p>
-      </div>
-
       <div className="loginCard">
-        <h2>Administrator Login</h2>
-        <p className="loginSubtitle">Sign in to access the profiling dashboard.</p>
+        <div className="loginLogoWrap" aria-hidden="true">
+          <div className="loginLogoGlow" />
+          <img className="loginLogo" src="/logo.png" alt="" />
+        </div>
+
+        <h2 className="loginTitle">CCS Profiling</h2>
+        <p className="loginSubtitle">Administrator sign in</p>
 
         <form onSubmit={handleSubmit} className="loginForm">
           <label>
@@ -40,6 +36,7 @@ function Login() {
               placeholder="Enter username"
               value={user}
               onChange={(e) => setUser(e.target.value)}
+              autoComplete="username"
             />
           </label>
 
@@ -50,6 +47,7 @@ function Login() {
               placeholder="Enter password"
               value={pass}
               onChange={(e) => setPass(e.target.value)}
+              autoComplete="current-password"
             />
           </label>
 

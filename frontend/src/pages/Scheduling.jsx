@@ -1,5 +1,4 @@
 import Sidebar from "../components/Sidebar";
-import Topbar from "../components/Topbar";
 
 function Scheduling() {
   const courseSchedules = [
@@ -26,9 +25,10 @@ function Scheduling() {
       <Sidebar />
 
       <div className="content">
-        <Topbar />
-
-        <h1 className="pageTitle">Scheduling</h1>
+        <div className="studentsHeader">
+          <h1 className="pageTitle">Scheduling</h1>
+          <p className="mutedText">Course schedules and room assignments.</p>
+        </div>
 
         <div className="scheduleGrid">
           {courseSchedules.map((s, idx) => (

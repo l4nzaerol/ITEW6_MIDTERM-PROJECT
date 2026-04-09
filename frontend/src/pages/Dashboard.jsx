@@ -1,49 +1,53 @@
 import Sidebar from "../components/Sidebar";
-import Topbar from "../components/Topbar";
 import data from "../data/mockData";
+import { useStudents } from "../context/StudentsContext";
+import { useEvents } from "../context/EventsContext";
 
 function Dashboard() {
-  const programmingStudents = data.students.filter((s) =>
-    s.skills.includes("programming")
-  );
+  const { students } = useStudents();
+  const { events } = useEvents();
 
-  const basketballStudents = data.students.filter((s) =>
-    s.skills.includes("basketball")
-  );
+  const formatTitleCase = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
 
-  const studentsWithViolations = data.students.filter(
-    (s) => s.violations.length > 0
-  );
-  const studentsNoAffiliation = data.students.filter(
-    (s) => s.affiliations.length === 0
-  );
+  const formatCourse = (course) => {
+    const c = String(course || "").trim().toUpperCase();
+    if (c === "BSIT") return "Bachelor of Science in Information Technology";
+    if (c === "BSCS") return "Bachelor of Science in Computer Science";
+    return String(course || "").trim() || "-";
+  };
 
-  const totalStudents = data.students.length;
-  const totalFaculty = data.faculty.length;
-  const totalEvents = data.events.length;
+  const hasSkill = (s, name) =>
+    (s.skills || []).some((x) => String(x || "").toLowerCase() === name);
+
+  const totalStudents = students.length;
+  const programmingStudents = students.filter((s) => hasSkill(s, "programming"));
+  const basketballStudents = students.filter((s) => hasSkill(s, "basketball"));
+  const studentsWithViolations = students.filter((s) => (s.violations || []).length > 0);
+  const studentsNoAffiliation = students.filter((s) => (s.affiliations || []).length === 0);
 
   // GPA and eligibility summaries
-  const allGrades = data.students.flatMap((s) => s.academicHistory || []);
-  const avgGpa = allGrades.length
-    ? (allGrades.reduce((sum, rec) => sum + rec.gpa, 0) / allGrades.length).toFixed(2)
+  const allGrades = students.flatMap((s) => s.academicHistory || []);
+  const validGpas = allGrades
+    .map((rec) => Number(rec?.gpa))
+    .filter((n) => Number.isFinite(n));
+  const avgGpa = validGpas.length
+    ? (validGpas.reduce((sum, n) => sum + n, 0) / validGpas.length).toFixed(2)
     : "N/A";
-
-  const programmingContestEligible = data.students.filter((s) => {
-    const hasProgramming = s.skills.includes("programming");
-    const term = s.academicHistory && s.academicHistory[0];
-    const hasGoodGpa = term ? term.gpa <= 1.75 : false;
-    return hasProgramming && hasGoodGpa;
-  }).length;
-
-  const basketballTryoutEligible = data.students.filter(
-    (s) => s.skills.includes("basketball") && (!s.violations || s.violations.length === 0)
-  ).length;
 
   // Skills distribution
   const skillCounts = {};
-  data.students.forEach((s) => {
+  students.forEach((s) => {
     (s.skills || []).forEach((skill) => {
-      skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+      const key = String(skill || "").toLowerCase().trim();
+      if (!key) return;
+      skillCounts[key] = (skillCounts[key] || 0) + 1;
     });
   });
   const skillList = Object.entries(skillCounts)
@@ -52,7 +56,7 @@ function Dashboard() {
 
   // Course breakdown
   const courseCounts = {};
-  data.students.forEach((s) => {
+  students.forEach((s) => {
     if (!s.course) return;
     courseCounts[s.course] = (courseCounts[s.course] || 0) + 1;
   });
@@ -62,103 +66,151 @@ function Dashboard() {
   }));
 
   // Upcoming events - sorted by date
-  const upcomingEvents = data.events
+  const upcomingEvents = (events || [])
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .slice(0, 5);
 
   // Active affiliations summary
-  const allAffiliations = [...new Set(data.students.flatMap(s => s.affiliations))];
+  const allAffiliations = [...new Set(students.flatMap(s => s.affiliations))];
 
   return (
     <div className="layout">
       <Sidebar />
 
-      <div className="content">
-        <Topbar />
-
+      <div className="content dashboardContent">
         <div className="dashboardHeader">
-          <h1 className="pageTitle centeredTitle">CCS Comprehensive Profiling Dashboard</h1>
+          <h1 className="pageTitle centeredTitle">College of Computing Studies Dashboard</h1>
         </div>
 
-        <div className="cards">
-          <div className="card">
+        <div className="cards dashboardCards">
+          <div className="card statCard">
             <h4>Total Students</h4>
             <p>{totalStudents}</p>
           </div>
-          <div className="card">
-            <h4>Total Faculty</h4>
-            <p>{totalFaculty}</p>
+          <div className="card statCard">
+            <h4>With Violations</h4>
+            <p>{studentsWithViolations.length}</p>
           </div>
-          <div className="card">
-            <h4>Total Events</h4>
-            <p>{totalEvents}</p>
+          <div className="card statCard">
+            <h4>No Affiliations</h4>
+            <p>{studentsNoAffiliation.length}</p>
           </div>
-          <div className="card">
+          <div className="card statCard">
             <h4>Avg. GPA (all terms)</h4>
             <p>{avgGpa}</p>
           </div>
-          <div className="card">
-            <h4>Programming Contest Eligible</h4>
-            <p>{programmingContestEligible}</p>
+          <div className="card statCard">
+            <h4>Total Skills (unique)</h4>
+            <p>{skillList.length}</p>
           </div>
         </div>
 
-        <div className="dashboardGrid">
-          <div className="infoSection">
-            <h3>Upcoming & Alerts</h3>
+        <div className="dashboardGrid dashboardGridEnhanced">
+          <div className="dashPanel infoSection">
+            <div className="dashPanelHeader">
+              <h3>Upcoming Events</h3>
+              <span className="dashBadge">{upcomingEvents.length} upcoming</span>
+            </div>
             {upcomingEvents.length ? (
               upcomingEvents.map((ev) => (
-                <div key={ev.id} className="infoItem">
-                  <div className="infoItemTitle">{ev.name}</div>
+                <div key={ev.id} className="dashRow infoItem">
+                  <div className="dashRowTop">
+                    <div className="infoItemTitle">{ev.name}</div>
+                    <span className="dashPill dashPillEvent">{ev.type}</span>
+                  </div>
                   <div className="infoItemMeta">
                     {new Date(ev.date).toLocaleDateString("en-US", {
                       month: "short",
                       day: "numeric",
-                      year: "numeric"
-                    })}{" "}
-                    • {ev.type}
+                      year: "numeric",
+                    })}
                   </div>
                 </div>
               ))
             ) : (
-              <div className="infoItem">
+              <div className="dashRow infoItem">
                 <div className="infoItemTitle">No upcoming events</div>
               </div>
             )}
-
-            <div className="infoItem">
-              <div className="infoItemTitle">Eligibility & Alerts</div>
-              <div className="infoItemMeta">
-                {studentsWithViolations.length} with violations •{" "}
-                {studentsNoAffiliation.length} without affiliations •{" "}
-                {programmingContestEligible} programming-contest ready •{" "}
-                {basketballTryoutEligible} basketball try-out ready
-              </div>
-            </div>
           </div>
 
-          <div className="infoSection">
-            <h3>Affiliations & Skills</h3>
-            {allAffiliations.map((aff, idx) => (
-              <div key={idx} className="infoItem">
-                <div className="infoItemTitle">{aff}</div>
-                <div className="infoItemMeta">Active student organization / club</div>
+          <div className="dashStack">
+            <div className="dashPanel infoSection">
+              <div className="dashPanelHeader">
+                <h3>Affiliations</h3>
+                <span className="dashBadge">{allAffiliations.length} active</span>
               </div>
-            ))}
+              {allAffiliations.length ? (
+                allAffiliations.slice(0, 8).map((aff, idx) => (
+                  <div key={idx} className="dashRow infoItem dashRowAff">
+                    <div className="dashRowTop">
+                      <div className="infoItemTitle">{aff}</div>
+                      <span className="dashPill dashPillAff">Club</span>
+                    </div>
+                    <div className="infoItemMeta">Student organization / club</div>
+                  </div>
+                ))
+              ) : (
+                <div className="dashRow infoItem dashRowAff">
+                  <div className="infoItemTitle">No affiliations recorded</div>
+                  <div className="infoItemMeta">Add affiliations in a student profile to populate this section.</div>
+                </div>
+              )}
+            </div>
 
-            {skillList.map((s) => (
-              <div key={s.skill} className="infoItem">
-                <div className="infoItemTitle">{s.skill}</div>
-                <div className="infoItemMeta">{s.count} student(s) with this skill</div>
+            <div className="dashPanel infoSection">
+              <div className="dashPanelHeader">
+                <h3>Skills</h3>
+                <span className="dashBadge">{skillList.length} total</span>
               </div>
-            ))}
+              <div className="dashChips">
+                {skillList.length ? (
+                  skillList.slice(0, 12).map((s) => (
+                    <div key={s.skill} className="dashChip">
+                      <span className="dashChipName">{formatTitleCase(s.skill)}</span>
+                      <span className="dashChipCount">{s.count}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="dashRow infoItem">
+                    <div className="infoItemTitle">No skills recorded</div>
+                    <div className="infoItemMeta">Add skills to student profiles to populate this section.</div>
+                  </div>
+                )}
+              </div>
+            </div>
 
-            {courseList.map((c) => (
-              <div key={c.course} className="infoItem">
-                <div className="infoItemTitle">{c.course}</div>
-                <div className="infoItemMeta">{c.count} student(s) enrolled</div>
+            <div className="dashPanel infoSection">
+              <div className="dashPanelHeader">
+                <h3>Courses</h3>
+                <span className="dashBadge">{courseList.length} programs</span>
               </div>
-            ))}
+              <div className="dashBars">
+                {courseList
+                  .slice()
+                  .sort((a, b) => b.count - a.count)
+                  .map((c) => (
+                    <div key={c.course} className="dashBarRow">
+                      <div className="dashBarTop">
+                        <div className="dashBarLabel">{formatCourse(c.course)}</div>
+                        <div className="dashBarValue">{c.count}</div>
+                      </div>
+                      <div className="dashBarTrack">
+                        <div
+                          className="dashBarFill"
+                          style={{
+                            width: `${Math.round(
+                              (c.count /
+                                Math.max(1, ...courseList.map((x) => x.count))) *
+                                100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

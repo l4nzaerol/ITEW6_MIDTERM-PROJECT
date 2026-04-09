@@ -1,15 +1,16 @@
 import { useState } from "react";
-import data from "../data/mockData";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import { useStudents } from "../context/StudentsContext";
 
 function Search() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState("free"); // free | basketball | programming
+  const { students } = useStudents();
 
   const normalize = (value) => value.toLowerCase();
 
-  const allStudents = data.students;
+  const allStudents = students;
 
   const freeResults = allStudents.filter((s) => {
     const q = normalize(query);

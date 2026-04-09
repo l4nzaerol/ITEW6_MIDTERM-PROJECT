@@ -39,8 +39,8 @@ function Sidebar() {
         <Link className={active("/events")} to="/events">
           Events
         </Link>
-        <Link className={active("/search")} to="/search">
-          Comprehensive Search
+        <Link className={active("/reports")} to="/reports">
+          Search & Reports
         </Link>
       </div>
 

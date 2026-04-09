@@ -1,15 +1,16 @@
 import { useState } from "react";
-import data from "../data/mockData";
+import { useStudents } from "../context/StudentsContext";
 
 function Topbar() {
   const [query, setQuery] = useState("");
+  const { students } = useStudents();
 
-  const results = data.students.filter((s) => {
+  const results = students.filter((s) => {
     const q = query.toLowerCase();
     return (
       s.name.toLowerCase().includes(q) ||
-      s.course.toLowerCase().includes(q) ||
-      s.section.toLowerCase().includes(q) ||
+      (s.course || "").toLowerCase().includes(q) ||
+      (s.section || "").toLowerCase().includes(q) ||
       s.skills.join(" ").toLowerCase().includes(q) ||
       s.affiliations.join(" ").toLowerCase().includes(q)
     );

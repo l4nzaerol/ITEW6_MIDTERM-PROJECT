@@ -1,5 +1,4 @@
 import Sidebar from "../components/Sidebar";
-import Topbar from "../components/Topbar";
 import data from "../data/mockData";
 
 function Faculty() {
@@ -8,26 +7,34 @@ function Faculty() {
       <Sidebar />
 
       <div className="content">
-        <Topbar />
+        <div className="studentsHeader">
+          <h1 className="pageTitle">Faculty</h1>
+          <p className="mutedText">Department list and teaching specializations.</p>
+        </div>
 
-        <h1 className="pageTitle">Faculty Information</h1>
-
-        {data.faculty.map((f) => (
-          <div key={f.id} className="card">
-            <h3>{f.name}</h3>
-            <p>
-              <strong>Department:</strong> {f.department}
-            </p>
-            <p>
-              <strong>Specialization:</strong> {f.specialization}
-            </p>
-            {f.coursesHandled && f.coursesHandled.length > 0 && (
-              <p>
-                <strong>Courses Handled:</strong> {f.coursesHandled.join(", ")}
-              </p>
-            )}
-          </div>
-        ))}
+        <div className="studentsGrid">
+          {data.faculty.map((f) => (
+            <div key={f.id} className="dashPanel">
+              <div className="dashPanelHeader">
+                <h3>{f.name}</h3>
+                <span className="dashBadge">{f.department}</span>
+              </div>
+              <div className="infoItemMeta">
+                <strong>Specialization:</strong> {f.specialization}
+              </div>
+              {f.coursesHandled && f.coursesHandled.length > 0 && (
+                <div className="dashChips" style={{ marginTop: 10 }}>
+                  {f.coursesHandled.map((c) => (
+                    <span key={c} className="dashChip">
+                      <span className="dashChipName">{c}</span>
+                      <span className="dashChipCount">Course</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
