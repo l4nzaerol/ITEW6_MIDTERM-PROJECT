@@ -106,32 +106,66 @@ function Dashboard() {
         </div>
 
         <div className="dashboardGrid dashboardGridEnhanced">
-          <div className="dashPanel infoSection">
-            <div className="dashPanelHeader">
-              <h3>Upcoming Events</h3>
-              <span className="dashBadge">{upcomingEvents.length} upcoming</span>
-            </div>
-            {upcomingEvents.length ? (
-              upcomingEvents.map((ev) => (
-                <div key={ev.id} className="dashRow infoItem">
-                  <div className="dashRowTop">
-                    <div className="infoItemTitle">{ev.name}</div>
-                    <span className="dashPill dashPillEvent">{ev.type}</span>
-                  </div>
-                  <div className="infoItemMeta">
-                    {new Date(ev.date).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="dashRow infoItem">
-                <div className="infoItemTitle">No upcoming events</div>
+          <div className="dashStack">
+            <div className="dashPanel infoSection">
+              <div className="dashPanelHeader">
+                <h3>Upcoming Events</h3>
+                <span className="dashBadge">{upcomingEvents.length} upcoming</span>
               </div>
-            )}
+              {upcomingEvents.length ? (
+                upcomingEvents.map((ev) => (
+                  <div key={ev.id} className="dashRow infoItem">
+                    <div className="dashRowTop">
+                      <div className="infoItemTitle">{ev.name}</div>
+                      <span className="dashPill dashPillEvent">{ev.type}</span>
+                    </div>
+                    <div className="infoItemMeta">
+                      {new Date(ev.date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="dashRow infoItem">
+                  <div className="infoItemTitle">No upcoming events</div>
+                </div>
+              )}
+            </div>
+
+            <div className="dashPanel infoSection">
+              <div className="dashPanelHeader">
+                <h3>Courses</h3>
+                <span className="dashBadge">{courseList.length} programs</span>
+              </div>
+              <div className="dashBars">
+                {courseList
+                  .slice()
+                  .sort((a, b) => b.count - a.count)
+                  .map((c) => (
+                    <div key={c.course} className="dashBarRow">
+                      <div className="dashBarTop">
+                        <div className="dashBarLabel">{formatCourse(c.course)}</div>
+                        <div className="dashBarValue">{c.count}</div>
+                      </div>
+                      <div className="dashBarTrack">
+                        <div
+                          className="dashBarFill"
+                          style={{
+                            width: `${Math.round(
+                              (c.count /
+                                Math.max(1, ...courseList.map((x) => x.count))) *
+                                100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </div>
 
           <div className="dashStack">
@@ -180,37 +214,6 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="dashPanel infoSection">
-              <div className="dashPanelHeader">
-                <h3>Courses</h3>
-                <span className="dashBadge">{courseList.length} programs</span>
-              </div>
-              <div className="dashBars">
-                {courseList
-                  .slice()
-                  .sort((a, b) => b.count - a.count)
-                  .map((c) => (
-                    <div key={c.course} className="dashBarRow">
-                      <div className="dashBarTop">
-                        <div className="dashBarLabel">{formatCourse(c.course)}</div>
-                        <div className="dashBarValue">{c.count}</div>
-                      </div>
-                      <div className="dashBarTrack">
-                        <div
-                          className="dashBarFill"
-                          style={{
-                            width: `${Math.round(
-                              (c.count /
-                                Math.max(1, ...courseList.map((x) => x.count))) *
-                                100
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
           </div>
         </div>
       </div>

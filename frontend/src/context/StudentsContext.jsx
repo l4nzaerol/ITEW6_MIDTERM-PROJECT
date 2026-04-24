@@ -2,19 +2,55 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const StudentsContext = createContext(null);
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const ENV_API_URL = import.meta.env.VITE_API_URL || "";
+
+function getApiCandidates() {
+  const host =
+    typeof window !== "undefined" && window.location?.hostname
+      ? window.location.hostname
+      : "localhost";
+  return Array.from(
+    new Set(
+      [ENV_API_URL, `http://${host}:3001`, "http://localhost:3001", "http://127.0.0.1:3001"].filter(Boolean)
+    )
+  );
+}
 
 export function StudentsProvider({ children }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
+
+  const requestWithFallback = async (path, options) => {
+    const candidates = [apiBase, ...getApiCandidates()].filter(
+      (v, i, a) => v && a.indexOf(v) === i
+    );
+    let lastNetworkError = null;
+
+    for (const base of candidates) {
+      try {
+        const res = await fetch(`${base}${path}`, options);
+        setApiBase(base);
+        return res;
+      } catch (e) {
+        lastNetworkError = e;
+      }
+    }
+
+    throw new Error(
+      `Cannot reach API server. Make sure backend is running on port 3001.${
+        lastNetworkError instanceof Error ? ` (${lastNetworkError.message})` : ""
+      }`
+    );
+  };
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(`${API_URL}/students`);
+        const res = await requestWithFallback("/students");
         if (!res.ok) throw new Error("Failed to load students");
         const list = await res.json();
         setStudents(Array.isArray(list) ? list : []);
@@ -29,33 +65,42 @@ export function StudentsProvider({ children }) {
 
   const api = useMemo(() => {
     const refresh = async (params) => {
-      const url = new URL(`${API_URL}/students`);
+      const url = new URL(`${apiBase}/students`);
       if (params) {
         Object.entries(params).forEach(([k, v]) => {
           if (v === undefined || v === null || v === "") return;
           url.searchParams.set(k, String(v));
         });
       }
-      const res = await fetch(url.toString());
+      const res = await requestWithFallback(`/students?${url.searchParams.toString()}`);
       if (!res.ok) throw new Error("Failed to load students");
       const list = await res.json();
       setStudents(Array.isArray(list) ? list : []);
     };
 
     const addStudent = async (student) => {
-      const res = await fetch(`${API_URL}/students`, {
+      const res = await requestWithFallback("/students", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(student),
       });
-      if (!res.ok) throw new Error("Failed to add student");
+      if (!res.ok) {
+        let message = "Failed to add student";
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
       // Re-fetch to guarantee consistent fields (e.g. studentNo)
       await res.json();
       await refresh();
     };
 
     const updateStudent = async (studentNo, updates) => {
-      const res = await fetch(`${API_URL}/students/${encodeURIComponent(studentNo)}`, {
+      const res = await requestWithFallback(`/students/${encodeURIComponent(studentNo)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -69,7 +114,7 @@ export function StudentsProvider({ children }) {
     };
 
     const updateStudentById = async (studentId, updates) => {
-      const res = await fetch(`${API_URL}/students/by-id/${encodeURIComponent(String(studentId))}`, {
+      const res = await requestWithFallback(`/students/by-id/${encodeURIComponent(String(studentId))}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -86,7 +131,9 @@ export function StudentsProvider({ children }) {
     };
 
     const deleteStudent = async (studentNo) => {
-      const res = await fetch(`${API_URL}/students/${encodeURIComponent(studentNo)}`, { method: "DELETE" });
+      const res = await requestWithFallback(`/students/${encodeURIComponent(studentNo)}`, {
+        method: "DELETE",
+      });
       if (!res.ok && res.status !== 204) {
         let message = "Failed to delete student";
         try {
@@ -103,7 +150,9 @@ export function StudentsProvider({ children }) {
     };
 
     const deleteStudentById = async (studentId) => {
-      const res = await fetch(`${API_URL}/students/by-id/${encodeURIComponent(String(studentId))}`, { method: "DELETE" });
+      const res = await requestWithFallback(`/students/by-id/${encodeURIComponent(String(studentId))}`, {
+        method: "DELETE",
+      });
       if (!res.ok && res.status !== 204) {
         let message = "Failed to delete student";
         try {
@@ -132,9 +181,9 @@ export function StudentsProvider({ children }) {
       deleteStudent,
       deleteStudentById,
       getStudentByNo,
-      apiUrl: API_URL,
+      apiUrl: apiBase,
     };
-  }, [students, loading, error]);
+  }, [students, loading, error, apiBase]);
 
   return (
     <StudentsContext.Provider value={api}>{children}</StudentsContext.Provider>

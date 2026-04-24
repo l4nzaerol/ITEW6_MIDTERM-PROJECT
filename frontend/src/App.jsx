@@ -10,6 +10,7 @@ import Events from "./pages/Events";
 import Reports from "./pages/Reports";
 import { StudentsProvider } from "./context/StudentsContext";
 import { EventsProvider } from "./context/EventsContext";
+import { FacultyProvider } from "./context/FacultyContext";
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = localStorage.getItem("ccs_isAuthenticated") === "true";
@@ -23,8 +24,9 @@ function App() {
   return (
     <StudentsProvider>
       <EventsProvider>
-        <BrowserRouter>
-          <Routes>
+        <FacultyProvider>
+          <BrowserRouter>
+            <Routes>
           <Route
             path="/"
             element={
@@ -91,8 +93,9 @@ function App() {
             }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
+            </Routes>
+          </BrowserRouter>
+        </FacultyProvider>
       </EventsProvider>
     </StudentsProvider>
   );

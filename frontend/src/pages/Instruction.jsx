@@ -1,25 +1,11 @@
 import Sidebar from "../components/Sidebar";
+import { CURRICULUM, SYLLABI, useFaculty } from "../context/FacultyContext";
 
 function Instruction() {
-  const curriculumTracks = [
-    {
-      program: "BS Computer Science",
-      focus: "Algorithms, Software Engineering, Systems Programming",
-    },
-    {
-      program: "BS Information Technology",
-      focus: "Web Systems, Networks, IT Infrastructure",
-    },
-  ];
-
-  const sampleSyllabi = [
-    { code: "CS101", title: "Introduction to Programming", term: "1st Sem" },
-    { code: "IT210", title: "Web Systems", term: "2nd Sem" },
-  ];
-
-  const sampleLessons = [
-    { course: "CS101", topic: "Control Structures", type: "Lecture" },
-    { course: "IT210", topic: "RESTful APIs", type: "Lab" },
+  const { faculties } = useFaculty();
+  const tracks = [
+    { key: "IT", label: "Information Technology" },
+    { key: "CS", label: "Computer Science" },
   ];
 
   return (
@@ -29,51 +15,57 @@ function Instruction() {
       <div className="content">
         <div className="studentsHeader">
           <h1 className="pageTitle">Instruction</h1>
-          <p className="mutedText">Curriculum overview, syllabi, and lesson snapshots.</p>
+          <p className="mutedText">
+            Organized syllabus list by year with assigned faculty per course.
+          </p>
         </div>
 
-        <div className="dashboardGrid">
-          <div className="dashPanel">
-            <div className="dashPanelHeader">
-              <h3>Curriculum Overview</h3>
-              <span className="dashBadge">{curriculumTracks.length} tracks</span>
-            </div>
-            <ul className="compactList">
-              {curriculumTracks.map((c, idx) => (
-                <li key={idx}>
-                  <strong>{c.program}</strong> — {c.focus}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <div className="dashStack">
+          {tracks.map((track) => (
+            <div key={track.key} className="dashPanel">
+              <div className="dashPanelHeader">
+                <h3>{track.label} Curriculum</h3>
+                <span className="dashBadge">
+                  {SYLLABI.filter((s) => s.track === track.key).length} courses
+                </span>
+              </div>
 
-          <div className="dashPanel">
-            <div className="dashPanelHeader">
-              <h3>Sample Syllabi</h3>
-              <span className="dashBadge">{sampleSyllabi.length} items</span>
-            </div>
-            <ul className="compactList">
-              {sampleSyllabi.map((s) => (
-                <li key={s.code}>
-                  <strong>{s.code}</strong> — {s.title} <span className="mutedText">({s.term})</span>
-                </li>
+              {Object.entries(CURRICULUM[track.key] || {}).map(([yearLevel, sems]) => (
+                <div key={`${track.key}-${yearLevel}`} className="modalFormSection" style={{ marginBottom: 10 }}>
+                  <div className="infoItemTitle">{yearLevel}</div>
+                  {Object.entries(sems).map(([term, courses]) => (
+                    <div key={`${track.key}-${yearLevel}-${term}`} style={{ marginTop: 8 }}>
+                      <div className="infoItemMeta" style={{ marginBottom: 4 }}>
+                        <strong>{term}</strong>
+                      </div>
+                      <ul className="compactList">
+                        {courses.map(([code, title]) => {
+                          const meta = SYLLABI.find(
+                            (s) =>
+                              s.track === track.key &&
+                              s.yearLevel === yearLevel &&
+                              s.term === term &&
+                              s.code === code
+                          );
+                          const assigned = faculties
+                            .filter((f) => (f.syllabusHandled || []).includes(meta?.id))
+                            .map((f) => f.name);
+                          return (
+                            <li key={`${track.key}-${yearLevel}-${term}-${code}`}>
+                              <strong>{code}</strong> - {title}
+                              <div className="infoItemMeta">
+                                Faculty: {assigned.length ? assigned.join(", ") : "Not assigned"}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
               ))}
-            </ul>
-          </div>
-
-          <div className="dashPanel">
-            <div className="dashPanelHeader">
-              <h3>Lesson Snapshots</h3>
-              <span className="dashBadge">{sampleLessons.length} lessons</span>
             </div>
-            <ul className="compactList">
-              {sampleLessons.map((l, idx) => (
-                <li key={idx}>
-                  <strong>{l.course}</strong> — {l.topic} <span className="mutedText">({l.type})</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          ))}
         </div>
       </div>
     </div>
