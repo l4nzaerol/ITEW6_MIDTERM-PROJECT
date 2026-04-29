@@ -7,6 +7,16 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+const ALLOWED_AFFILIATIONS = new Map([
+  ["sites", "Sites"],
+  ["association of computer science students", "Association of Computer Science Students"],
+]);
+
+function normalizeAffiliation(raw) {
+  const key = String(raw || "").trim().toLowerCase();
+  return ALLOWED_AFFILIATIONS.get(key) || null;
+}
+
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 app.get("/debug/db", async (_req, res) => {
@@ -342,7 +352,7 @@ app.post("/students", async (req, res) => {
 
     const affiliations = Array.isArray(payload.affiliations) ? payload.affiliations : [];
     for (const raw of affiliations) {
-      const name = String(raw || "").trim();
+      const name = normalizeAffiliation(raw);
       if (!name) continue;
       await conn.query(
         `INSERT INTO affiliations (affiliation_name, affiliation_type)
@@ -487,7 +497,7 @@ app.put("/students/:studentNo", async (req, res) => {
 
     const affiliations = Array.isArray(payload.affiliations) ? payload.affiliations : [];
     for (const raw of affiliations) {
-      const name = String(raw || "").trim();
+      const name = normalizeAffiliation(raw);
       if (!name) continue;
       await conn.query(
         `INSERT INTO affiliations (affiliation_name, affiliation_type)
@@ -626,7 +636,7 @@ app.put("/students/by-id/:studentId", async (req, res) => {
 
     const affiliations = Array.isArray(payload.affiliations) ? payload.affiliations : [];
     for (const raw of affiliations) {
-      const name = String(raw || "").trim();
+      const name = normalizeAffiliation(raw);
       if (!name) continue;
       await conn.query(
         `INSERT INTO affiliations (affiliation_name, affiliation_type)

@@ -34,15 +34,8 @@ const SKILLS_POOL = [
   "public speaking",
 ];
 
-const AFFILIATIONS_POOL = [
-  "CCS Student Council",
-  "ACM Programming Guild",
-  "Basketball Club",
-  "Google Developer Student Club",
-  "Esports Club",
-  "Peer Tutors Circle",
-  "Campus Journalism Society",
-];
+// Requirement: affiliations must be Sites only or Association of Computer Science Students only.
+const AFFILIATIONS_POOL = ["Sites", "Association of Computer Science Students"];
 
 const NON_ACAD_POOL = [
   ["Hackathon", "Participant"],

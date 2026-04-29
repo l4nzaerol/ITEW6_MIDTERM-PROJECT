@@ -6,6 +6,7 @@ import { useStudents } from "../context/StudentsContext";
 
 const COURSES = ["BSIT", "BSCS"];
 const YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+const ALLOWED_AFFILIATIONS = ["Sites", "Association of Computer Science Students"];
 
 function formatTitleCase(value) {
   return String(value || "")
@@ -28,6 +29,16 @@ function splitCommaList(value) {
   return value
     .split(",")
     .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function normalizeAffiliations(rawList) {
+  const normalized = new Map(
+    ALLOWED_AFFILIATIONS.map((x) => [x.toLowerCase(), x])
+  );
+  return rawList
+    .map((x) => String(x || "").trim().toLowerCase())
+    .map((k) => normalized.get(k))
     .filter(Boolean);
 }
 
@@ -165,7 +176,7 @@ function Students() {
         year: newStudent.yearLevel,
         section: newStudent.section,
         skills: splitCommaList(String(newStudent.skills || "")),
-        affiliations: splitCommaList(String(newStudent.affiliations || "")),
+        affiliations: normalizeAffiliations(splitCommaList(String(newStudent.affiliations || ""))),
         violations: splitCommaList(String(newStudent.violations || "")),
         academicHistory,
         nonAcademicHistory,
@@ -287,7 +298,7 @@ function Students() {
       year: String(viewForm.yearLevel || "").trim(),
       section: String(viewForm.section || "").trim(),
       skills: splitCommaList(String(viewForm.skills || "")),
-      affiliations: splitCommaList(String(viewForm.affiliations || "")),
+      affiliations: normalizeAffiliations(splitCommaList(String(viewForm.affiliations || ""))),
       violations: splitCommaList(String(viewForm.violations || "")),
       academicHistory,
       nonAcademicHistory,

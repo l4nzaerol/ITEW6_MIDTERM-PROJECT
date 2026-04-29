@@ -2,6 +2,42 @@ import { useMemo, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import { useStudents } from "../context/StudentsContext";
 import { useEvents } from "../context/EventsContext";
+import { SYLLABI, useFaculty } from "../context/FacultyContext";
+
+const SCHEDULES_STORAGE_KEY = "ccs_schedules_v1";
+
+function readSchedules() {
+  try {
+    const raw = localStorage.getItem(SCHEDULES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function toCsvValue(value) {
+  const s = String(value ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+}
+
+function downloadCsv(filename, columns, rows) {
+  const header = columns.map(toCsvValue).join(",");
+  const body = rows
+    .map((r) => columns.map((c) => toCsvValue(r?.[c] ?? "")).join(","))
+    .join("\n");
+  const csv = `${header}\n${body}\n`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 function normalize(value) {
   return String(value || "").toLowerCase().trim();
@@ -20,8 +56,9 @@ function titleCase(value) {
 function Reports() {
   const { students } = useStudents();
   const { events } = useEvents();
+  const { faculties } = useFaculty();
 
-  const [tab, setTab] = useState("students"); // students | events
+  const [tab, setTab] = useState("students"); // students | events | faculty | instruction | scheduling
   const [q, setQ] = useState("");
 
   // Student filters
@@ -34,6 +71,20 @@ function Reports() {
   const [eventType, setEventType] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  // Faculty filters
+  const [facultyDept, setFacultyDept] = useState("all");
+
+  // Instruction filters
+  const [track, setTrack] = useState("all"); // IT | CS
+  const [yearLevel, setYearLevel] = useState("all");
+  const [term, setTerm] = useState("all");
+
+  // Scheduling filters
+  const [schedSection, setSchedSection] = useState("all");
+  const [schedFaculty, setSchedFaculty] = useState("all");
+
+  const schedules = useMemo(() => readSchedules(), []);
 
   const courseOptions = useMemo(() => {
     const set = new Set();
@@ -101,6 +152,101 @@ function Reports() {
     });
   }, [students, q, course, section, skill, affiliation]);
 
+  const deptOptions = useMemo(() => {
+    const set = new Set();
+    (faculties || []).forEach((f) => {
+      if (f.department) set.add(String(f.department).trim());
+    });
+    return Array.from(set).sort();
+  }, [faculties]);
+
+  const filteredFaculty = useMemo(() => {
+    const query = normalize(q);
+    const syllabusById = new Map(SYLLABI.map((s) => [s.id, s]));
+    return (faculties || []).filter((f) => {
+      if (facultyDept !== "all" && String(f.department || "") !== facultyDept) return false;
+      if (!query) return true;
+      const handled = (f.syllabusHandled || [])
+        .map((id) => syllabusById.get(id))
+        .filter(Boolean)
+        .map((s) => `${s.code} ${s.title}`)
+        .join(" ");
+      const hay = `${f.name || ""} ${f.department || ""} ${f.specialization || ""} ${(f.sectionsHandled || []).join(" ")} ${handled}`.toLowerCase();
+      return hay.includes(query);
+    });
+  }, [faculties, q, facultyDept]);
+
+  const instructionRows = useMemo(() => {
+    return SYLLABI.map((s) => {
+      const assigned = (faculties || [])
+        .filter((f) => (f.syllabusHandled || []).includes(s.id))
+        .map((f) => f.name);
+      return {
+        id: s.id,
+        track: s.track,
+        yearLevel: s.yearLevel,
+        term: s.term,
+        code: s.code,
+        title: s.title,
+        faculty: assigned.length ? assigned.join("; ") : "Not assigned",
+      };
+    });
+  }, [faculties]);
+
+  const instructionYearOptions = useMemo(() => {
+    const set = new Set();
+    SYLLABI.forEach((s) => set.add(s.yearLevel));
+    return Array.from(set).sort();
+  }, []);
+
+  const instructionTermOptions = useMemo(() => {
+    const set = new Set();
+    SYLLABI.forEach((s) => set.add(s.term));
+    return Array.from(set).sort();
+  }, []);
+
+  const filteredInstruction = useMemo(() => {
+    const query = normalize(q);
+    return instructionRows.filter((r) => {
+      if (track !== "all" && String(r.track) !== track) return false;
+      if (yearLevel !== "all" && String(r.yearLevel) !== yearLevel) return false;
+      if (term !== "all" && String(r.term) !== term) return false;
+      if (!query) return true;
+      const hay = `${r.track} ${r.yearLevel} ${r.term} ${r.code} ${r.title} ${r.faculty}`.toLowerCase();
+      return hay.includes(query);
+    });
+  }, [instructionRows, q, track, yearLevel, term]);
+
+  const scheduleSectionOptions = useMemo(() => {
+    const set = new Set();
+    (schedules || []).forEach((s) => {
+      if (s.section) set.add(String(s.section).trim());
+    });
+    return Array.from(set).sort();
+  }, [schedules]);
+
+  const scheduleFacultyOptions = useMemo(() => {
+    const set = new Set();
+    (schedules || []).forEach((s) => {
+      if (s.faculty) set.add(String(s.faculty).trim());
+    });
+    return Array.from(set).sort();
+  }, [schedules]);
+
+  const filteredSchedules = useMemo(() => {
+    const query = normalize(q);
+    return (schedules || [])
+      .slice()
+      .sort((a, b) => String(a.section || "").localeCompare(String(b.section || "")))
+      .filter((s) => {
+        if (schedSection !== "all" && String(s.section || "") !== schedSection) return false;
+        if (schedFaculty !== "all" && String(s.faculty || "") !== schedFaculty) return false;
+        if (!query) return true;
+        const hay = `${s.course || ""} ${s.section || ""} ${s.faculty || ""} ${s.time || ""} ${s.room || ""} ${s.lab || ""}`.toLowerCase();
+        return hay.includes(query);
+      });
+  }, [schedules, q, schedSection, schedFaculty]);
+
   const filteredEvents = useMemo(() => {
     const query = normalize(q);
     const from = dateFrom ? new Date(dateFrom) : null;
@@ -151,22 +297,13 @@ function Reports() {
         <div className="filtersRow">
           <div className="filterField">
             <span>Category</span>
-            <div className="segmented">
-              <button
-                type="button"
-                className={tab === "students" ? "segmentedBtn active" : "segmentedBtn"}
-                onClick={() => setTab("students")}
-              >
-                Students
-              </button>
-              <button
-                type="button"
-                className={tab === "events" ? "segmentedBtn active" : "segmentedBtn"}
-                onClick={() => setTab("events")}
-              >
-                Events
-              </button>
-            </div>
+            <select value={tab} onChange={(e) => setTab(e.target.value)}>
+              <option value="students">Students</option>
+              <option value="events">Events</option>
+              <option value="faculty">Faculty</option>
+              <option value="instruction">Instruction</option>
+              <option value="scheduling">Scheduling</option>
+            </select>
           </div>
 
           {tab === "students" ? (
@@ -216,7 +353,7 @@ function Reports() {
                 </select>
               </div>
             </>
-          ) : (
+          ) : tab === "events" ? (
             <>
               <div className="filterField">
                 <span>Type</span>
@@ -238,6 +375,78 @@ function Reports() {
                 <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
               </div>
             </>
+          ) : tab === "faculty" ? (
+            <>
+              <div className="filterField">
+                <span>Department</span>
+                <select value={facultyDept} onChange={(e) => setFacultyDept(e.target.value)}>
+                  <option value="all">All</option>
+                  {deptOptions.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : tab === "instruction" ? (
+            <>
+              <div className="filterField">
+                <span>Track</span>
+                <select value={track} onChange={(e) => setTrack(e.target.value)}>
+                  <option value="all">All</option>
+                  <option value="IT">IT</option>
+                  <option value="CS">CS</option>
+                </select>
+              </div>
+              <div className="filterField">
+                <span>Year level</span>
+                <select value={yearLevel} onChange={(e) => setYearLevel(e.target.value)}>
+                  <option value="all">All</option>
+                  {instructionYearOptions.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="filterField">
+                <span>Term</span>
+                <select value={term} onChange={(e) => setTerm(e.target.value)}>
+                  <option value="all">All</option>
+                  {instructionTermOptions.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="filterField">
+                <span>Section</span>
+                <select value={schedSection} onChange={(e) => setSchedSection(e.target.value)}>
+                  <option value="all">All</option>
+                  {scheduleSectionOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="filterField">
+                <span>Faculty</span>
+                <select value={schedFaculty} onChange={(e) => setSchedFaculty(e.target.value)}>
+                  <option value="all">All</option>
+                  {scheduleFacultyOptions.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
           )}
 
           <div className="filterField">
@@ -254,9 +463,85 @@ function Reports() {
                 setEventType("all");
                 setDateFrom("");
                 setDateTo("");
+                setFacultyDept("all");
+                setTrack("all");
+                setYearLevel("all");
+                setTerm("all");
+                setSchedSection("all");
+                setSchedFaculty("all");
               }}
             >
               Clear filters
+            </button>
+            <button
+              type="button"
+              className="chip"
+              style={{ marginLeft: 8 }}
+              onClick={() => {
+                if (tab === "students") {
+                  downloadCsv(
+                    "students-report.csv",
+                    ["studentNo", "name", "course", "year", "section", "skills", "affiliations"],
+                    filteredStudents.map((s) => ({
+                      studentNo: s.studentNo || "",
+                      name: s.name || "",
+                      course: s.course || "",
+                      year: s.year || "",
+                      section: s.section || "",
+                      skills: (s.skills || []).join("; "),
+                      affiliations: (s.affiliations || []).join("; "),
+                    }))
+                  );
+                } else if (tab === "events") {
+                  downloadCsv(
+                    "events-report.csv",
+                    ["date", "name", "type"],
+                    filteredEvents.map((e) => ({
+                      date: e.date || "",
+                      name: e.name || "",
+                      type: e.type || "",
+                    }))
+                  );
+                } else if (tab === "faculty") {
+                  const syllabusById = new Map(SYLLABI.map((s) => [s.id, s]));
+                  downloadCsv(
+                    "faculty-report.csv",
+                    ["name", "department", "specialization", "sectionsHandled", "syllabiHandled"],
+                    filteredFaculty.map((f) => ({
+                      name: f.name || "",
+                      department: f.department || "",
+                      specialization: f.specialization || "",
+                      sectionsHandled: (f.sectionsHandled || []).join("; "),
+                      syllabiHandled: (f.syllabusHandled || [])
+                        .map((id) => syllabusById.get(id))
+                        .filter(Boolean)
+                        .map((s) => `${s.code} - ${s.title}`)
+                        .join("; "),
+                    }))
+                  );
+                } else if (tab === "instruction") {
+                  downloadCsv(
+                    "instruction-report.csv",
+                    ["track", "yearLevel", "term", "code", "title", "faculty"],
+                    filteredInstruction
+                  );
+                } else {
+                  downloadCsv(
+                    "scheduling-report.csv",
+                    ["course", "section", "faculty", "time", "room", "lab"],
+                    filteredSchedules.map((s) => ({
+                      course: s.course || "",
+                      section: s.section || "",
+                      faculty: s.faculty || "",
+                      time: s.time || "",
+                      room: s.room || "",
+                      lab: s.lab || "",
+                    }))
+                  );
+                }
+              }}
+            >
+              Download CSV
             </button>
           </div>
         </div>
@@ -307,7 +592,7 @@ function Reports() {
               </table>
             </div>
           </div>
-        ) : (
+        ) : tab === "events" ? (
           <div className="dashPanel">
             <div className="dashPanelHeader">
               <h3>Event results</h3>
@@ -334,6 +619,124 @@ function Reports() {
                     <tr>
                       <td className="emptyCell" colSpan={3}>
                         No matching events for these filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : tab === "faculty" ? (
+          <div className="dashPanel">
+            <div className="dashPanelHeader">
+              <h3>Faculty results</h3>
+              <span className="dashBadge">{filteredFaculty.length} found</span>
+            </div>
+            <div className="tableShell">
+              <table className="dataTable" style={{ minWidth: 920 }}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Specialization</th>
+                    <th>Sections handled</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredFaculty.map((f) => (
+                    <tr key={f.id}>
+                      <td className="strong">{f.name}</td>
+                      <td>{f.department || "-"}</td>
+                      <td>{f.specialization || "-"}</td>
+                      <td className="mutedCell">
+                        {f.sectionsHandled?.length ? f.sectionsHandled.join(", ") : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredFaculty.length === 0 && (
+                    <tr>
+                      <td className="emptyCell" colSpan={4}>
+                        No matching faculty for these filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : tab === "instruction" ? (
+          <div className="dashPanel">
+            <div className="dashPanelHeader">
+              <h3>Instruction results</h3>
+              <span className="dashBadge">{filteredInstruction.length} found</span>
+            </div>
+            <div className="tableShell">
+              <table className="dataTable" style={{ minWidth: 980 }}>
+                <thead>
+                  <tr>
+                    <th>Track</th>
+                    <th>Year</th>
+                    <th>Term</th>
+                    <th>Course</th>
+                    <th>Title</th>
+                    <th>Assigned faculty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInstruction.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.track}</td>
+                      <td>{r.yearLevel}</td>
+                      <td>{r.term}</td>
+                      <td className="strong">{r.code}</td>
+                      <td>{r.title}</td>
+                      <td className="mutedCell">{r.faculty}</td>
+                    </tr>
+                  ))}
+                  {filteredInstruction.length === 0 && (
+                    <tr>
+                      <td className="emptyCell" colSpan={6}>
+                        No matching instruction rows for these filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="dashPanel">
+            <div className="dashPanelHeader">
+              <h3>Scheduling results</h3>
+              <span className="dashBadge">{filteredSchedules.length} found</span>
+            </div>
+            <div className="tableShell">
+              <table className="dataTable" style={{ minWidth: 940 }}>
+                <thead>
+                  <tr>
+                    <th>Course</th>
+                    <th>Section</th>
+                    <th>Faculty</th>
+                    <th>Time</th>
+                    <th>Room</th>
+                    <th>Lab</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSchedules.map((s) => (
+                    <tr key={s.id}>
+                      <td className="strong">{s.course}</td>
+                      <td>{s.section}</td>
+                      <td>{s.faculty || "-"}</td>
+                      <td>{s.time || "-"}</td>
+                      <td>{s.room || "-"}</td>
+                      <td>{s.lab || "-"}</td>
+                    </tr>
+                  ))}
+                  {filteredSchedules.length === 0 && (
+                    <tr>
+                      <td className="emptyCell" colSpan={6}>
+                        No matching schedules for these filters.
                       </td>
                     </tr>
                   )}
