@@ -53,10 +53,23 @@ function titleCase(value) {
     .join(" ");
 }
 
+function compactFacultyCourses(faculty, syllabusById, limit = 8) {
+  const courses = (faculty?.syllabusHandled || [])
+    .map((id) => syllabusById.get(id))
+    .filter(Boolean)
+    .sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")));
+
+  const shown = courses.slice(0, limit);
+  const remaining = Math.max(0, courses.length - shown.length);
+  return { shown, remaining, total: courses.length };
+}
+
 function Reports() {
   const { students } = useStudents();
   const { events } = useEvents();
   const { faculties } = useFaculty();
+
+  const syllabusById = useMemo(() => new Map(SYLLABI.map((s) => [s.id, s])), []);
 
   const [tab, setTab] = useState("students"); // students | events | faculty | instruction | scheduling
   const [q, setQ] = useState("");
@@ -162,7 +175,6 @@ function Reports() {
 
   const filteredFaculty = useMemo(() => {
     const query = normalize(q);
-    const syllabusById = new Map(SYLLABI.map((s) => [s.id, s]));
     return (faculties || []).filter((f) => {
       if (facultyDept !== "all" && String(f.department || "") !== facultyDept) return false;
       if (!query) return true;
@@ -174,7 +186,7 @@ function Reports() {
       const hay = `${f.name || ""} ${f.department || ""} ${f.specialization || ""} ${(f.sectionsHandled || []).join(" ")} ${handled}`.toLowerCase();
       return hay.includes(query);
     });
-  }, [faculties, q, facultyDept]);
+  }, [faculties, q, facultyDept, syllabusById]);
 
   const instructionRows = useMemo(() => {
     return SYLLABI.map((s) => {
@@ -633,29 +645,53 @@ function Reports() {
               <span className="dashBadge">{filteredFaculty.length} found</span>
             </div>
             <div className="tableShell">
-              <table className="dataTable" style={{ minWidth: 920 }}>
+              <table className="dataTable" style={{ minWidth: 1120 }}>
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Department</th>
                     <th>Specialization</th>
                     <th>Sections handled</th>
+                    <th>Courses handled</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredFaculty.map((f) => (
-                    <tr key={f.id}>
-                      <td className="strong">{f.name}</td>
-                      <td>{f.department || "-"}</td>
-                      <td>{f.specialization || "-"}</td>
-                      <td className="mutedCell">
-                        {f.sectionsHandled?.length ? f.sectionsHandled.join(", ") : "-"}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredFaculty.map((f) => {
+                    const { shown, remaining, total } = compactFacultyCourses(f, syllabusById);
+                    return (
+                      <tr key={f.id}>
+                        <td className="strong">{f.name}</td>
+                        <td>{f.department || "-"}</td>
+                        <td>{f.specialization || "-"}</td>
+                        <td className="mutedCell">
+                          {f.sectionsHandled?.length ? f.sectionsHandled.join(", ") : "-"}
+                        </td>
+                        <td className="mutedCell">
+                          {total ? (
+                            <div className="dashChips" style={{ gap: 6 }}>
+                              {shown.map((c) => (
+                                <span key={c.id} className="dashChip" style={{ padding: "6px 9px" }}>
+                                  <span className="dashChipName">{c.code}</span>
+                                  <span className="dashChipCount">{c.yearLevel}</span>
+                                </span>
+                              ))}
+                              {remaining > 0 && (
+                                <span className="dashChip" style={{ padding: "6px 9px" }}>
+                                  <span className="dashChipName">+{remaining}</span>
+                                  <span className="dashChipCount">more</span>
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredFaculty.length === 0 && (
                     <tr>
-                      <td className="emptyCell" colSpan={4}>
+                      <td className="emptyCell" colSpan={5}>
                         No matching faculty for these filters.
                       </td>
                     </tr>

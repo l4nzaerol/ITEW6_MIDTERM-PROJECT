@@ -5,7 +5,7 @@ import { pool } from "./mysql.js";
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 const ALLOWED_AFFILIATIONS = new Map([
   ["sites", "Sites"],
@@ -65,6 +65,203 @@ function parseName(fullName) {
   if (parts.length === 0) return { first: "Unnamed", last: "Student" };
   if (parts.length === 1) return { first: parts[0], last: "" };
   return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
+}
+
+function normalizeFacultyPayload(payload) {
+  return {
+    name: String(payload?.name || "").trim(),
+    department: String(payload?.department || "Information Technology").trim(),
+    specialization: String(payload?.specialization || "").trim(),
+    syllabusHandled: Array.isArray(payload?.syllabusHandled) ? payload.syllabusHandled : [],
+    sectionsHandled: Array.isArray(payload?.sectionsHandled) ? payload.sectionsHandled : [],
+  };
+}
+
+function normalizeEventPayload(payload) {
+  return {
+    name: String(payload?.name || "").trim(),
+    type: String(payload?.type || "Academic").trim(),
+    date: String(payload?.date || "").trim(),
+  };
+}
+
+function normalizeSchedulePayload(payload) {
+  return {
+    course: String(payload?.course || "").trim(),
+    section: String(payload?.section || "").trim(),
+    room: String(payload?.room || "").trim(),
+    lab: String(payload?.lab || "").trim(),
+    faculty: String(payload?.faculty || "").trim(),
+    time: String(payload?.time || "").trim(),
+  };
+}
+
+function makeDummyStudents(total = 1200) {
+  const firstNames = [
+    "Adrian","Bianca","Carlo","Diana","Ethan","Faith","Gabriel","Hannah","Ivan","Julia",
+    "Kyle","Lara","Marco","Nina","Owen","Paula","Quinn","Rafael","Sophia","Tristan",
+    "Uma","Vince","Wendy","Xander","Yasmin","Zach",
+  ];
+  const lastNames = [
+    "Santos","Reyes","Cruz","Garcia","Mendoza","Torres","Ramos","Castro","Navarro","Flores",
+    "Bautista","Morales","Aquino","Villanueva","Herrera","Dela Cruz",
+  ];
+  const yearLevels = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+  const courses = ["BSIT", "BSCS"];
+  const skillsPool = ["programming", "basketball", "web development", "database design", "networking"];
+  const pick = (arr, i) => arr[i % arr.length];
+  const pickN = (arr, i, n) => {
+    const out = [];
+    for (let k = 0; k < n; k++) out.push(arr[(i + k * 7) % arr.length]);
+    return Array.from(new Set(out));
+  };
+
+  const list = [];
+  for (let i = 0; i < total; i++) {
+    const firstName = pick(firstNames, i);
+    const lastName = pick(lastNames, i * 3);
+    const year = yearLevels[i % yearLevels.length];
+    const course = courses[i % courses.length];
+    const sectionPrefix = course === "BSIT" ? "IT" : "CS";
+    const section = `${sectionPrefix}${String((i % 4) + 1)}${String.fromCharCode(65 + (i % 3))}`;
+    const studentNo = `2026-${String(i + 1).padStart(5, "0")}`;
+    list.push({
+      studentNo,
+      firstName,
+      middleName: "",
+      lastName,
+      name: `${firstName} ${lastName}`,
+      course,
+      year,
+      section,
+      skills: pickN(skillsPool, i, 3),
+      affiliations: [i % 2 === 0 ? "Sites" : "Association of Computer Science Students"],
+      violations: [],
+      academicHistory: [],
+      nonAcademicHistory: [],
+    });
+  }
+  return list;
+}
+
+const DEFAULT_EVENTS = [
+  { name: "Basketball Tryouts", type: "Sports", date: "2026-03-07" },
+  { name: "Programming Contest", type: "Academic", date: "2026-03-10" },
+  { name: "Coding Workshop", type: "Academic", date: "2026-03-12" },
+  { name: "Science Fair", type: "Academic", date: "2026-03-15" },
+  { name: "Hackathon", type: "Academic", date: "2026-03-20" },
+  { name: "Sports Festival", type: "Sports", date: "2026-03-25" },
+];
+
+const DEFAULT_SCHEDULES = [
+  { course: "CS101", section: "CS2A", room: "Room 201", lab: "Lab 3", faculty: "Dr. Maria Smith", time: "MWF 9:00-10:00" },
+  { course: "IT210", section: "IT3B", room: "Room 305", lab: "Lab 1", faculty: "Prof. Jonathan Johnson", time: "TTh 1:00-2:30" },
+];
+
+const DEFAULT_FACULTIES = [
+  { name: "Dr. Maria Smith", department: "Computer Science", specialization: "Algorithms and AI", syllabusHandled: [], sectionsHandled: ["CS1A","CS2A"] },
+  { name: "Prof. Jonathan Johnson", department: "Information Technology", specialization: "Web and Mobile Development", syllabusHandled: [], sectionsHandled: ["IT2A","IT3B"] },
+  { name: "Prof. Angela Reyes", department: "Information Technology", specialization: "Networking and Security", syllabusHandled: [], sectionsHandled: ["IT1A","IT4A"] },
+  { name: "Dr. Carlo Dizon", department: "Computer Science", specialization: "Software Engineering", syllabusHandled: [], sectionsHandled: ["CS3A","CS4A"] },
+  { name: "Prof. Liza Mendoza", department: "Information Technology", specialization: "Information Management", syllabusHandled: [], sectionsHandled: ["IT1B","IT3A"] },
+];
+
+async function ensureDomainTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS syllabi (
+      syllabus_id VARCHAR(255) PRIMARY KEY,
+      track VARCHAR(16) NOT NULL,
+      year_level VARCHAR(32) NOT NULL,
+      term_label VARCHAR(32) NOT NULL,
+      course_code VARCHAR(64) NOT NULL,
+      title VARCHAR(255) NOT NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS faculties (
+      faculty_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      name VARCHAR(255) NOT NULL,
+      department VARCHAR(128) NOT NULL,
+      specialization VARCHAR(255) NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS faculty_syllabi (
+      faculty_id BIGINT NOT NULL,
+      syllabus_id VARCHAR(255) NOT NULL,
+      PRIMARY KEY (faculty_id, syllabus_id),
+      CONSTRAINT fk_faculty_syllabi_faculty FOREIGN KEY (faculty_id) REFERENCES faculties(faculty_id) ON DELETE CASCADE,
+      CONSTRAINT fk_faculty_syllabi_syllabus FOREIGN KEY (syllabus_id) REFERENCES syllabi(syllabus_id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS faculty_sections (
+      faculty_id BIGINT NOT NULL,
+      section_code VARCHAR(64) NOT NULL,
+      PRIMARY KEY (faculty_id, section_code),
+      CONSTRAINT fk_faculty_sections_faculty FOREIGN KEY (faculty_id) REFERENCES faculties(faculty_id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS events (
+      event_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      name VARCHAR(255) NOT NULL,
+      type VARCHAR(64) NOT NULL,
+      event_date DATE NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schedules (
+      schedule_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      course_code VARCHAR(64) NOT NULL,
+      section_code VARCHAR(64) NOT NULL,
+      room VARCHAR(128) NULL,
+      lab VARCHAR(128) NULL,
+      faculty_name VARCHAR(255) NULL,
+      time_slot VARCHAR(128) NULL
+    )
+  `);
+}
+
+async function upsertSyllabi(rows = []) {
+  if (!rows.length) return;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    for (const s of rows) {
+      const id = String(s?.id || "").trim();
+      if (!id) continue;
+      await conn.query(
+        `INSERT INTO syllabi (syllabus_id, track, year_level, term_label, course_code, title)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           track = VALUES(track),
+           year_level = VALUES(year_level),
+           term_label = VALUES(term_label),
+           course_code = VALUES(course_code),
+           title = VALUES(title)`,
+        [
+          id,
+          String(s?.track || "").trim(),
+          String(s?.yearLevel || "").trim(),
+          String(s?.term || "").trim(),
+          String(s?.code || "").trim(),
+          String(s?.title || "").trim(),
+        ]
+      );
+    }
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
 }
 
 async function loadStudentChildren(studentIds) {
@@ -729,6 +926,461 @@ app.delete("/students/:studentNo", async (req, res) => {
   res.status(204).send();
 });
 
+app.get("/syllabi", async (_req, res) => {
+  await ensureDomainTables();
+  const [rows] = await pool.query(
+    `SELECT syllabus_id, track, year_level, term_label, course_code, title
+     FROM syllabi
+     ORDER BY track, year_level, term_label, course_code`
+  );
+  res.json(
+    rows.map((r) => ({
+      id: r.syllabus_id,
+      track: r.track,
+      yearLevel: r.year_level,
+      term: r.term_label,
+      code: r.course_code,
+      title: r.title,
+    }))
+  );
+});
+
+app.get("/faculties", async (_req, res) => {
+  await ensureDomainTables();
+  const [rows] = await pool.query(
+    `SELECT faculty_id, name, department, specialization FROM faculties ORDER BY name`
+  );
+  const ids = rows.map((x) => x.faculty_id);
+  if (!ids.length) return res.json([]);
+  const inClause = ids.map(() => "?").join(",");
+  const [syllabiRows] = await pool.query(
+    `SELECT faculty_id, syllabus_id FROM faculty_syllabi WHERE faculty_id IN (${inClause})`,
+    ids
+  );
+  const [sectionRows] = await pool.query(
+    `SELECT faculty_id, section_code FROM faculty_sections WHERE faculty_id IN (${inClause})`,
+    ids
+  );
+  const syllabiMap = new Map();
+  const sectionMap = new Map();
+  syllabiRows.forEach((r) => {
+    const k = String(r.faculty_id);
+    if (!syllabiMap.has(k)) syllabiMap.set(k, []);
+    syllabiMap.get(k).push(r.syllabus_id);
+  });
+  sectionRows.forEach((r) => {
+    const k = String(r.faculty_id);
+    if (!sectionMap.has(k)) sectionMap.set(k, []);
+    sectionMap.get(k).push(r.section_code);
+  });
+  res.json(
+    rows.map((r) => ({
+      id: Number(r.faculty_id),
+      name: r.name,
+      department: r.department,
+      specialization: r.specialization || "",
+      syllabusHandled: syllabiMap.get(String(r.faculty_id)) || [],
+      sectionsHandled: sectionMap.get(String(r.faculty_id)) || [],
+    }))
+  );
+});
+
+app.post("/faculties", async (req, res) => {
+  await ensureDomainTables();
+  const payload = normalizeFacultyPayload(req.body || {});
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [ins] = await conn.query(
+      `INSERT INTO faculties (name, department, specialization) VALUES (?, ?, ?)`,
+      [payload.name, payload.department, payload.specialization || null]
+    );
+    const id = ins.insertId;
+    for (const sid of payload.syllabusHandled) {
+      await conn.query(
+        `INSERT IGNORE INTO faculty_syllabi (faculty_id, syllabus_id) VALUES (?, ?)`,
+        [id, sid]
+      );
+    }
+    for (const sec of payload.sectionsHandled) {
+      await conn.query(
+        `INSERT IGNORE INTO faculty_sections (faculty_id, section_code) VALUES (?, ?)`,
+        [id, sec]
+      );
+    }
+    await conn.commit();
+    res.status(201).json({ id, ...payload });
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ message: "Failed to create faculty" });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put("/faculties/:id", async (req, res) => {
+  await ensureDomainTables();
+  const id = Number(req.params.id);
+  const payload = normalizeFacultyPayload(req.body || {});
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [exists] = await conn.query(`SELECT faculty_id FROM faculties WHERE faculty_id = ?`, [id]);
+    if (!exists.length) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Not found" });
+    }
+    await conn.query(
+      `UPDATE faculties SET name = ?, department = ?, specialization = ? WHERE faculty_id = ?`,
+      [payload.name, payload.department, payload.specialization || null, id]
+    );
+    await conn.query(`DELETE FROM faculty_syllabi WHERE faculty_id = ?`, [id]);
+    await conn.query(`DELETE FROM faculty_sections WHERE faculty_id = ?`, [id]);
+    for (const sid of payload.syllabusHandled) {
+      await conn.query(
+        `INSERT IGNORE INTO faculty_syllabi (faculty_id, syllabus_id) VALUES (?, ?)`,
+        [id, sid]
+      );
+    }
+    for (const sec of payload.sectionsHandled) {
+      await conn.query(
+        `INSERT IGNORE INTO faculty_sections (faculty_id, section_code) VALUES (?, ?)`,
+        [id, sec]
+      );
+    }
+    await conn.commit();
+    res.json({ id, ...payload });
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ message: "Failed to update faculty" });
+  } finally {
+    conn.release();
+  }
+});
+
+app.delete("/faculties/:id", async (req, res) => {
+  await ensureDomainTables();
+  const [result] = await pool.query(`DELETE FROM faculties WHERE faculty_id = ?`, [Number(req.params.id)]);
+  if (!result || result.affectedRows === 0) return res.status(404).json({ message: "Not found" });
+  res.status(204).send();
+});
+
+app.get("/events", async (_req, res) => {
+  await ensureDomainTables();
+  const [rows] = await pool.query(
+    `SELECT event_id, name, type, event_date FROM events ORDER BY event_date, event_id`
+  );
+  res.json(
+    rows.map((r) => ({
+      id: Number(r.event_id),
+      name: r.name,
+      type: r.type,
+      date: r.event_date ? new Date(r.event_date).toISOString().slice(0, 10) : "",
+    }))
+  );
+});
+
+app.post("/events", async (req, res) => {
+  await ensureDomainTables();
+  const payload = normalizeEventPayload(req.body || {});
+  const [ins] = await pool.query(
+    `INSERT INTO events (name, type, event_date) VALUES (?, ?, ?)`,
+    [payload.name, payload.type, payload.date || null]
+  );
+  res.status(201).json({ id: Number(ins.insertId), ...payload });
+});
+
+app.put("/events/:id", async (req, res) => {
+  await ensureDomainTables();
+  const id = Number(req.params.id);
+  const payload = normalizeEventPayload(req.body || {});
+  const [result] = await pool.query(
+    `UPDATE events SET name = ?, type = ?, event_date = ? WHERE event_id = ?`,
+    [payload.name, payload.type, payload.date || null, id]
+  );
+  if (!result || result.affectedRows === 0) return res.status(404).json({ message: "Not found" });
+  res.json({ id, ...payload });
+});
+
+app.delete("/events/:id", async (req, res) => {
+  await ensureDomainTables();
+  const [result] = await pool.query(`DELETE FROM events WHERE event_id = ?`, [Number(req.params.id)]);
+  if (!result || result.affectedRows === 0) return res.status(404).json({ message: "Not found" });
+  res.status(204).send();
+});
+
+app.get("/schedules", async (_req, res) => {
+  await ensureDomainTables();
+  const [rows] = await pool.query(
+    `SELECT schedule_id, course_code, section_code, room, lab, faculty_name, time_slot
+     FROM schedules
+     ORDER BY section_code, course_code`
+  );
+  res.json(
+    rows.map((r) => ({
+      id: Number(r.schedule_id),
+      course: r.course_code || "",
+      section: r.section_code || "",
+      room: r.room || "",
+      lab: r.lab || "",
+      faculty: r.faculty_name || "",
+      time: r.time_slot || "",
+    }))
+  );
+});
+
+app.post("/schedules", async (req, res) => {
+  await ensureDomainTables();
+  const payload = normalizeSchedulePayload(req.body || {});
+  const [ins] = await pool.query(
+    `INSERT INTO schedules (course_code, section_code, room, lab, faculty_name, time_slot)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [payload.course, payload.section, payload.room || null, payload.lab || null, payload.faculty || null, payload.time || null]
+  );
+  res.status(201).json({ id: Number(ins.insertId), ...payload });
+});
+
+app.put("/schedules/:id", async (req, res) => {
+  await ensureDomainTables();
+  const id = Number(req.params.id);
+  const payload = normalizeSchedulePayload(req.body || {});
+  const [result] = await pool.query(
+    `UPDATE schedules
+     SET course_code = ?, section_code = ?, room = ?, lab = ?, faculty_name = ?, time_slot = ?
+     WHERE schedule_id = ?`,
+    [payload.course, payload.section, payload.room || null, payload.lab || null, payload.faculty || null, payload.time || null, id]
+  );
+  if (!result || result.affectedRows === 0) return res.status(404).json({ message: "Not found" });
+  res.json({ id, ...payload });
+});
+
+app.delete("/schedules/:id", async (req, res) => {
+  await ensureDomainTables();
+  const [result] = await pool.query(`DELETE FROM schedules WHERE schedule_id = ?`, [Number(req.params.id)]);
+  if (!result || result.affectedRows === 0) return res.status(404).json({ message: "Not found" });
+  res.status(204).send();
+});
+
+app.post("/bootstrap/frontend-dummy", async (req, res) => {
+  await ensureDomainTables();
+  const {
+    faculties = [],
+    events = [],
+    schedules = [],
+    syllabi = [],
+    students = [],
+    seedStudents = false,
+    seedDefaults = false,
+  } = req.body || {};
+
+  const result = {
+    seeded: {
+      students: 0,
+      faculties: 0,
+      events: 0,
+      schedules: 0,
+      syllabi: 0,
+    },
+  };
+
+  if (Array.isArray(syllabi) && syllabi.length) {
+    await upsertSyllabi(syllabi);
+    result.seeded.syllabi = syllabi.length;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const facultiesToSeed =
+      Array.isArray(faculties) && faculties.length
+        ? faculties
+        : seedDefaults
+        ? DEFAULT_FACULTIES
+        : [];
+
+    if (facultiesToSeed.length) {
+      const [[countFac]] = await conn.query(`SELECT COUNT(*) AS total FROM faculties`);
+      if (Number(countFac.total) === 0) {
+        for (const raw of facultiesToSeed) {
+          const f = normalizeFacultyPayload(raw);
+          if (!f.name) continue;
+          const [ins] = await conn.query(
+            `INSERT INTO faculties (name, department, specialization) VALUES (?, ?, ?)`,
+            [f.name, f.department, f.specialization || null]
+          );
+          for (const sid of f.syllabusHandled) {
+            await conn.query(
+              `INSERT IGNORE INTO faculty_syllabi (faculty_id, syllabus_id) VALUES (?, ?)`,
+              [ins.insertId, sid]
+            );
+          }
+          for (const sec of f.sectionsHandled) {
+            await conn.query(
+              `INSERT IGNORE INTO faculty_sections (faculty_id, section_code) VALUES (?, ?)`,
+              [ins.insertId, sec]
+            );
+          }
+          result.seeded.faculties += 1;
+        }
+      }
+    }
+
+    const eventsToSeed =
+      Array.isArray(events) && events.length
+        ? events
+        : seedDefaults
+        ? DEFAULT_EVENTS
+        : [];
+
+    if (eventsToSeed.length) {
+      const [[countEvents]] = await conn.query(`SELECT COUNT(*) AS total FROM events`);
+      if (Number(countEvents.total) === 0) {
+        for (const raw of eventsToSeed) {
+          const e = normalizeEventPayload(raw);
+          if (!e.name) continue;
+          await conn.query(
+            `INSERT INTO events (name, type, event_date) VALUES (?, ?, ?)`,
+            [e.name, e.type, e.date || null]
+          );
+          result.seeded.events += 1;
+        }
+      }
+    }
+
+    const schedulesToSeed =
+      Array.isArray(schedules) && schedules.length
+        ? schedules
+        : seedDefaults
+        ? DEFAULT_SCHEDULES
+        : [];
+
+    if (schedulesToSeed.length) {
+      const [[countSchedules]] = await conn.query(`SELECT COUNT(*) AS total FROM schedules`);
+      if (Number(countSchedules.total) === 0) {
+        for (const raw of schedulesToSeed) {
+          const s = normalizeSchedulePayload(raw);
+          if (!s.course || !s.section) continue;
+          await conn.query(
+            `INSERT INTO schedules (course_code, section_code, room, lab, faculty_name, time_slot)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [s.course, s.section, s.room || null, s.lab || null, s.faculty || null, s.time || null]
+          );
+          result.seeded.schedules += 1;
+        }
+      }
+    }
+
+    const studentsToSeed =
+      Array.isArray(students) && students.length
+        ? students
+        : seedStudents
+        ? makeDummyStudents(1200)
+        : [];
+
+    if (studentsToSeed.length) {
+      const [[countStudents]] = await conn.query(`SELECT COUNT(*) AS total FROM students`);
+      if (Number(countStudents.total) === 0) {
+        for (const payload of studentsToSeed) {
+          const parsed = parseName(payload.name);
+          const first =
+            String(payload.first_name || payload.firstName || parsed.first || "").trim() ||
+            "Unnamed";
+          const last = String(payload.last_name || payload.lastName || parsed.last || "").trim();
+          const middle = String(payload.middle_name || payload.middleName || "").trim() || null;
+          const studentNo = String(payload.student_no || payload.studentNo || "").trim();
+          if (!studentNo) continue;
+          const course = String(payload.course || "").trim();
+          const yearLevel = String(payload.year_level || payload.yearLevel || payload.year || "").trim();
+          const section = String(payload.section || "").trim();
+          const [ins] = await conn.query(
+            `INSERT INTO students (student_no, first_name, last_name, middle_name, course, year_level, section)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [studentNo, first, last, middle, course, yearLevel, section]
+          );
+          const studentId = ins.insertId;
+
+          const skills = Array.isArray(payload.skills) ? payload.skills : [];
+          for (const raw of skills) {
+            const name = String(raw || "").trim().toLowerCase();
+            if (!name) continue;
+            await conn.query(
+              `INSERT INTO skills (skill_name) VALUES (?)
+               ON DUPLICATE KEY UPDATE skill_name = skill_name`,
+              [name]
+            );
+            const [[skillRow]] = await conn.query(
+              `SELECT skill_id FROM skills WHERE skill_name = ?`,
+              [name]
+            );
+            await conn.query(
+              `INSERT IGNORE INTO student_skills (student_id, skill_id) VALUES (?, ?)`,
+              [studentId, skillRow.skill_id]
+            );
+          }
+
+          const affiliations = Array.isArray(payload.affiliations) ? payload.affiliations : [];
+          for (const raw of affiliations) {
+            const name = normalizeAffiliation(raw);
+            if (!name) continue;
+            await conn.query(
+              `INSERT INTO affiliations (affiliation_name, affiliation_type)
+               VALUES (?, 'other')
+               ON DUPLICATE KEY UPDATE affiliation_name = affiliation_name`,
+              [name]
+            );
+            const [[affRow]] = await conn.query(
+              `SELECT affiliation_id FROM affiliations WHERE affiliation_name = ?`,
+              [name]
+            );
+            await conn.query(
+              `INSERT IGNORE INTO student_affiliations (student_id, affiliation_id) VALUES (?, ?)`,
+              [studentId, affRow.affiliation_id]
+            );
+          }
+
+          const violations = Array.isArray(payload.violations) ? payload.violations : [];
+          for (const raw of violations) {
+            const text = String(raw || "").trim();
+            if (!text) continue;
+            await conn.query(
+              `INSERT INTO violations (student_id, violation_text) VALUES (?, ?)`,
+              [studentId, text]
+            );
+          }
+
+          const academicHistory = Array.isArray(payload.academicHistory) ? payload.academicHistory : [];
+          for (const rec of academicHistory) {
+            if (!rec || !rec.term) continue;
+            await conn.query(
+              `INSERT INTO academic_history (student_id, term, gpa, standing) VALUES (?, ?, ?, ?)`,
+              [studentId, String(rec.term), rec.gpa ?? null, rec.standing ?? null]
+            );
+          }
+
+          const nonAcademicHistory = Array.isArray(payload.nonAcademicHistory) ? payload.nonAcademicHistory : [];
+          for (const rec of nonAcademicHistory) {
+            if (!rec || !rec.activity) continue;
+            await conn.query(
+              `INSERT INTO non_academic_activities (student_id, activity, role) VALUES (?, ?, ?)`,
+              [studentId, String(rec.activity), rec.role ?? null]
+            );
+          }
+          result.seeded.students += 1;
+        }
+      }
+    }
+
+    await conn.commit();
+    res.json(result);
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ message: "Failed to bootstrap dummy data" });
+  } finally {
+    conn.release();
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`API running on http://localhost:${PORT}`);
@@ -737,4 +1389,7 @@ app.listen(PORT, () => {
 // Best-effort one-time repair for existing NULL/blank student numbers.
 // Runs after the server boots so it won't block listening.
 ensureStudentNoIntegrity();
+ensureDomainTables().catch((e) => {
+  console.warn("WARN: failed to ensure domain tables", e?.message || e);
+});
 

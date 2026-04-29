@@ -105,7 +105,19 @@ export function StudentsProvider({ children }) {
         if (!res.ok) throw new Error("Failed to load students");
         const list = await res.json();
         const arr = Array.isArray(list) ? list : [];
-        setStudents(arr.length >= 1000 ? arr : makeDummyStudents(1200));
+        if (arr.length === 0) {
+          await requestWithFallback("/bootstrap/frontend-dummy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ seedStudents: true, seedDefaults: true }),
+          });
+          const refresh = await requestWithFallback("/students");
+          if (!refresh.ok) throw new Error("Failed to load students");
+          const seeded = await refresh.json();
+          setStudents(Array.isArray(seeded) ? seeded : []);
+        } else {
+          setStudents(arr);
+        }
       } catch (e) {
         // Fallback so UI still shows 1000+ even if backend isn't running/seeded.
         setStudents(makeDummyStudents(1200));

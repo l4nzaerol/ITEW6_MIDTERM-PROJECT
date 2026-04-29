@@ -3,9 +3,46 @@ import Modal from "../components/Modal";
 import { useMemo, useState } from "react";
 import { CURRICULUM, SECTION_OPTIONS, SYLLABI, useFaculty } from "../context/FacultyContext";
 
+function groupSyllabiByYearAndTerm(syllabusIds, syllabusById) {
+  const grouped = new Map(); // yearLevel -> term -> array
+  (syllabusIds || [])
+    .map((id) => syllabusById.get(id))
+    .filter(Boolean)
+    .forEach((s) => {
+      if (!grouped.has(s.yearLevel)) grouped.set(s.yearLevel, new Map());
+      const byTerm = grouped.get(s.yearLevel);
+      if (!byTerm.has(s.term)) byTerm.set(s.term, []);
+      byTerm.get(s.term).push(s);
+    });
+
+  const yearOrder = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+  const termOrder = ["1st Sem", "2nd Sem"];
+
+  return Array.from(grouped.entries())
+    .sort(
+      ([a], [b]) =>
+        (yearOrder.indexOf(a) === -1 ? 99 : yearOrder.indexOf(a)) -
+        (yearOrder.indexOf(b) === -1 ? 99 : yearOrder.indexOf(b))
+    )
+    .map(([yearLevel, termsMap]) => ({
+      yearLevel,
+      terms: Array.from(termsMap.entries())
+        .sort(
+          ([a], [b]) =>
+            (termOrder.indexOf(a) === -1 ? 99 : termOrder.indexOf(a)) -
+            (termOrder.indexOf(b) === -1 ? 99 : termOrder.indexOf(b))
+        )
+        .map(([term, items]) => ({
+          term,
+          courses: items.slice().sort((x, y) => String(x.code).localeCompare(String(y.code))),
+        })),
+    }));
+}
+
 function Faculty() {
-  const { faculties, addFaculty, removeFaculty } = useFaculty();
-  const [showAdd, setShowAdd] = useState(false);
+  const { faculties, addFaculty, updateFaculty, removeFaculty } = useFaculty();
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingFacultyId, setEditingFacultyId] = useState(null);
   const [form, setForm] = useState({
     name: "",
     department: "Information Technology",
@@ -34,10 +71,8 @@ function Faculty() {
     });
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    addFaculty(form);
-    setShowAdd(false);
+  const resetForm = () => {
+    setEditingFacultyId(null);
     setForm({
       name: "",
       department: "Information Technology",
@@ -45,6 +80,38 @@ function Faculty() {
       syllabusHandled: [],
       sectionsHandled: [],
     });
+  };
+
+  const openAddModal = () => {
+    resetForm();
+    setShowFormModal(true);
+  };
+
+  const openEditModal = (faculty) => {
+    setEditingFacultyId(faculty.id);
+    setForm({
+      name: faculty.name || "",
+      department: faculty.department || "Information Technology",
+      specialization: faculty.specialization || "",
+      syllabusHandled: Array.isArray(faculty.syllabusHandled) ? faculty.syllabusHandled : [],
+      sectionsHandled: Array.isArray(faculty.sectionsHandled) ? faculty.sectionsHandled : [],
+    });
+    setShowFormModal(true);
+  };
+
+  const closeFormModal = () => {
+    setShowFormModal(false);
+    resetForm();
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (editingFacultyId !== null) {
+      updateFaculty(editingFacultyId, form);
+    } else {
+      addFaculty(form);
+    }
+    closeFormModal();
   };
 
   const syllabusById = useMemo(
@@ -89,7 +156,7 @@ function Faculty() {
             <p className="mutedText">Add faculty and assign syllabi plus sections (1st to 4th year).</p>
           </div>
           <div className="studentsToolbar">
-            <button type="button" className="chip addPrimaryBtn" onClick={() => setShowAdd(true)}>
+            <button type="button" className="chip addPrimaryBtn" onClick={openAddModal}>
               + Add Faculty
             </button>
           </div>
@@ -102,32 +169,99 @@ function Faculty() {
                 <h3>{f.name}</h3>
                 <span className="dashBadge">{f.department}</span>
               </div>
-              <div className="infoItemMeta">
-                <strong>Specialization:</strong> {f.specialization}
-              </div>
-              {f.syllabusHandled && f.syllabusHandled.length > 0 && (
-                <div className="dashChips" style={{ marginTop: 10 }}>
-                  {f.syllabusHandled.map((sid) => (
-                    <span key={sid} className="dashChip">
-                      <span className="dashChipName">
-                        {syllabusById.get(sid)?.code || sid}
-                      </span>
-                      <span className="dashChipCount">Syllabus</span>
-                    </span>
-                  ))}
+              <div className="facultyMetaRow">
+                <div className="infoItemMeta">
+                  <strong>Specialization:</strong> {f.specialization || "-"}
                 </div>
-              )}
+                <div className="facultyMetaStats">
+                  <span className="dashPill soft">
+                    {(f.syllabusHandled || []).length} courses
+                  </span>
+                  <span className="dashPill soft">
+                    {(f.sectionsHandled || []).length} sections
+                  </span>
+                </div>
+              </div>
+
+              <div className="facultyBlock">
+                <div className="facultyBlockTitle">Handled courses</div>
+                {f.syllabusHandled && f.syllabusHandled.length > 0 ? (
+                  <div className="facultyHandledYears">
+                    {groupSyllabiByYearAndTerm(f.syllabusHandled, syllabusById).map((y) => (
+                      <div key={`${f.id}-${y.yearLevel}`} className="yearBlock">
+                        <div className="yearHeader">
+                          <span className="dashPill">{y.yearLevel}</span>
+                        </div>
+                        <div className="termColumns">
+                          {y.terms.map((t) => (
+                            <div key={`${f.id}-${y.yearLevel}-${t.term}`} className="termColumn">
+                              <div className="termHeader">{t.term}</div>
+                              <div className="courseMiniList">
+                                {t.courses.map((c) => (
+                                  <div key={c.id} className="courseMiniItem">
+                                    <div className="courseMiniTop">
+                                      <span className="courseCode">{c.code}</span>
+                                      <span className="courseTitle">{c.title}</span>
+                                    </div>
+                                    <div style={{ marginTop: 8 }}>
+                                      <button
+                                        type="button"
+                                        className="chip dangerChip"
+                                        style={{ padding: "4px 8px", fontSize: 11 }}
+                                        onClick={() => {
+                                          const next = (f.syllabusHandled || []).filter((sid) => sid !== c.id);
+                                          updateFaculty(f.id, { syllabusHandled: next });
+                                        }}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="emptyHint">No assigned courses yet.</div>
+                )}
+              </div>
+
               {f.sectionsHandled?.length > 0 && (
-                <div className="dashChips" style={{ marginTop: 8 }}>
-                  {f.sectionsHandled.map((sec) => (
-                    <span key={sec} className="dashChip">
-                      <span className="dashChipName">{sec}</span>
-                      <span className="dashChipCount">Section</span>
-                    </span>
-                  ))}
+                <div className="facultyBlock">
+                  <div className="facultyBlockTitle">Handled sections</div>
+                  <div className="dashChips">
+                    {f.sectionsHandled.map((sec) => (
+                      <span key={sec} className="dashChip">
+                        <span className="dashChipName">{sec}</span>
+                        <span className="dashChipCount">Section</span>
+                        <button
+                          type="button"
+                          className="chip dangerChip"
+                          style={{ marginLeft: 6, padding: "3px 7px", fontSize: 11 }}
+                          onClick={() => {
+                            const next = (f.sectionsHandled || []).filter((item) => item !== sec);
+                            updateFaculty(f.id, { sectionsHandled: next });
+                          }}
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
               <div className="modalActions" style={{ paddingTop: 8 }}>
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => openEditModal(f)}
+                >
+                  Edit
+                </button>
                 <button
                   type="button"
                   className="chip dangerChip"
@@ -150,25 +284,34 @@ function Faculty() {
                 <h3>{group.label} - Courses by Year</h3>
               </div>
               {group.years.map((y) => (
-                <div key={`${group.track}-${y.yearLevel}`} className="modalFormSection" style={{ marginBottom: 10 }}>
-                  <div className="infoItemTitle">{y.yearLevel}</div>
-                  {y.sems.map((sem) => (
-                    <div key={`${group.track}-${y.yearLevel}-${sem.term}`} style={{ marginTop: 8 }}>
-                      <div className="infoItemMeta" style={{ marginBottom: 4 }}>
-                        <strong>{sem.term}</strong>
-                      </div>
-                      <ul className="compactList">
-                        {sem.courses.map((c) => (
-                          <li key={`${group.track}-${y.yearLevel}-${sem.term}-${c.code}`}>
-                            <strong>{c.code}</strong> - {c.title}
-                            <div className="infoItemMeta">
-                              Faculty: {c.assigned.length ? c.assigned.join(", ") : "Not assigned"}
+                <div key={`${group.track}-${y.yearLevel}`} className="yearBlock">
+                  <div className="yearHeader">
+                    <span className="dashPill">{y.yearLevel}</span>
+                    <span className="dashPill soft">
+                      {y.sems.reduce((sum, s) => sum + s.courses.length, 0)} courses
+                    </span>
+                  </div>
+
+                  <div className="termColumns">
+                    {y.sems.map((sem) => (
+                      <div key={`${group.track}-${y.yearLevel}-${sem.term}`} className="termColumn">
+                        <div className="termHeader">{sem.term}</div>
+                        <div className="courseMiniList">
+                          {sem.courses.map((c) => (
+                            <div key={`${group.track}-${y.yearLevel}-${sem.term}-${c.code}`} className="courseMiniItem">
+                              <div className="courseMiniTop">
+                                <span className="courseCode">{c.code}</span>
+                                <span className="courseTitle">{c.title}</span>
+                              </div>
+                              <div className="courseMiniMeta">
+                                {c.assigned.length ? c.assigned.join(", ") : "Not assigned"}
+                              </div>
                             </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -176,7 +319,11 @@ function Faculty() {
         </div>
       </div>
 
-      <Modal title="Add Faculty" isOpen={showAdd} onClose={() => setShowAdd(false)}>
+      <Modal
+        title={editingFacultyId !== null ? "Edit Faculty" : "Add Faculty"}
+        isOpen={showFormModal}
+        onClose={closeFormModal}
+      >
         <form className="modalForm" onSubmit={handleSubmit}>
           <div className="modalFormSection">
             <div className="formGrid">
@@ -250,9 +397,9 @@ function Faculty() {
 
           <div className="modalActions">
             <button type="submit" className="primaryBtn">
-              Save Faculty
+              {editingFacultyId !== null ? "Save Changes" : "Save Faculty"}
             </button>
-            <button type="button" className="chip" onClick={() => setShowAdd(false)}>
+            <button type="button" className="chip" onClick={closeFormModal}>
               Cancel
             </button>
           </div>

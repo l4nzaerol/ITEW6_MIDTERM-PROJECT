@@ -605,6 +605,138 @@
   .dashMiniStat strong{
     color:#0f172a;
   }
+
+/* ----------------- FACULTY: HANDLED COURSES / CURRICULUM ----------------- */
+.facultyMetaRow{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.facultyMetaStats{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.facultyBlock{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid rgba(226,232,240,0.85);
+}
+
+.facultyBlockTitle{
+  font-size:12px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  color:#6b7280;
+  margin-bottom:8px;
+}
+
+.emptyHint{
+  font-size:12px;
+  color:#6b7280;
+  background:#fff;
+  border:1px dashed rgba(226,232,240,0.95);
+  border-radius:12px;
+  padding:10px 12px;
+}
+
+.yearBlock{
+  margin-top:10px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid rgba(226,232,240,0.95);
+  background:rgba(255,255,255,0.9);
+}
+
+.yearHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+
+.termColumns{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:10px;
+}
+
+.termColumn{
+  border:1px solid rgba(226,232,240,0.9);
+  background:linear-gradient(180deg,#ffffff,#fafafa);
+  border-radius:12px;
+  padding:10px;
+}
+
+.termHeader{
+  font-size:12px;
+  font-weight:800;
+  color:#0f172a;
+  margin-bottom:8px;
+}
+
+.courseMiniList{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.courseMiniItem{
+  padding:9px 10px;
+  border-radius:12px;
+  border:1px solid rgba(226,232,240,0.95);
+  background:#fff;
+}
+
+.courseMiniTop{
+  display:flex;
+  gap:10px;
+  align-items:baseline;
+  justify-content:space-between;
+}
+
+.courseCode{
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:0.3px;
+  color:#0f172a;
+  white-space:nowrap;
+}
+
+.courseTitle{
+  font-size:12px;
+  color:#4b5563;
+  line-height:1.25;
+  text-align:right;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  max-width:70%;
+}
+
+.courseMiniMeta{
+  margin-top:6px;
+  font-size:12px;
+  color:#6b7280;
+  line-height:1.25;
+}
+
+@media (max-width: 900px){
+  .termColumns{
+    grid-template-columns:1fr;
+  }
+  .courseTitle{
+    max-width:60%;
+  }
+}
   
   /* Large overview card spans 2 columns */
   .largeInfo{

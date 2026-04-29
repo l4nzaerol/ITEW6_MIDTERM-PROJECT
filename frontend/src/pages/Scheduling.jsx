@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import Modal from "../components/Modal";
 import { SECTION_OPTIONS, useFaculty } from "../context/FacultyContext";
 
-const STORAGE_KEY = "ccs_schedules_v1";
+const ENV_API_URL = import.meta.env.VITE_API_URL || "";
 
 const DEFAULT_SCHEDULES = [
   {
@@ -26,24 +26,24 @@ const DEFAULT_SCHEDULES = [
   },
 ];
 
-function readInitialSchedules() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch {
-    // ignore
-  }
-  return DEFAULT_SCHEDULES;
+function getApiCandidates() {
+  const host =
+    typeof window !== "undefined" && window.location?.hostname
+      ? window.location.hostname
+      : "localhost";
+  return Array.from(
+    new Set(
+      [ENV_API_URL, `http://${host}:3001`, "http://localhost:3001", "http://127.0.0.1:3001"].filter(Boolean)
+    )
+  );
 }
 
 function Scheduling() {
   const { faculties } = useFaculty();
-  const [schedules, setSchedules] = useState(() => readInitialSchedules());
+  const [schedules, setSchedules] = useState([]);
   const [showEditor, setShowEditor] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
   const [form, setForm] = useState({
     course: "",
     section: "IT1A",
@@ -86,14 +86,52 @@ function Scheduling() {
     return buckets;
   }, [sortedSchedules]);
 
-  const persist = (next) => {
-    setSchedules(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
+  const requestWithFallback = async (path, options) => {
+    const candidates = [apiBase, ...getApiCandidates()].filter((v, i, a) => v && a.indexOf(v) === i);
+    let lastNetworkError = null;
+    for (const base of candidates) {
+      try {
+        const res = await fetch(`${base}${path}`, options);
+        setApiBase(base);
+        return res;
+      } catch (e) {
+        lastNetworkError = e;
+      }
     }
+    throw new Error(
+      `Cannot reach API server.${lastNetworkError instanceof Error ? ` (${lastNetworkError.message})` : ""}`
+    );
   };
+
+  const refreshSchedules = async () => {
+    const res = await requestWithFallback("/schedules");
+    if (!res.ok) throw new Error("Failed to load schedules");
+    const rows = await res.json();
+    setSchedules(Array.isArray(rows) ? rows : []);
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await requestWithFallback("/schedules");
+        if (!res.ok) throw new Error("Failed to load schedules");
+        const rows = await res.json();
+        const list = Array.isArray(rows) ? rows : [];
+        setSchedules(list);
+        if (list.length === 0) {
+          await requestWithFallback("/bootstrap/frontend-dummy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ schedules: DEFAULT_SCHEDULES }),
+          });
+          await refreshSchedules();
+        }
+      } catch {
+        setSchedules(DEFAULT_SCHEDULES);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openAdd = () => {
     setEditingId(null);
@@ -121,19 +159,24 @@ function Scheduling() {
     setShowEditor(true);
   };
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
-    if (editingId) {
-      persist(
-        schedules.map((s) =>
-          s.id === editingId
-            ? { ...s, ...form }
-            : s
-        )
-      );
+    if (editingId !== null) {
+      const res = await requestWithFallback(`/schedules/${encodeURIComponent(String(editingId))}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) return;
     } else {
-      persist([{ id: Date.now(), ...form }, ...schedules]);
+      const res = await requestWithFallback("/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) return;
     }
+    await refreshSchedules();
     setShowEditor(false);
     setEditingId(null);
   };
@@ -190,9 +233,15 @@ function Scheduling() {
                         <button
                           type="button"
                           className="chip dangerChip"
-                          onClick={() => {
+                          onClick={async () => {
                             const ok = window.confirm("Delete this schedule?");
-                            if (ok) persist(schedules.filter((x) => x.id !== s.id));
+                            if (!ok) return;
+                            const res = await requestWithFallback(
+                              `/schedules/${encodeURIComponent(String(s.id))}`,
+                              { method: "DELETE" }
+                            );
+                            if (!res.ok && res.status !== 204) return;
+                            await refreshSchedules();
                           }}
                         >
                           Delete

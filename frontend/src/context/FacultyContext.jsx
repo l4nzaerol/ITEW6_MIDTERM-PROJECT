@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const FacultyContext = createContext(null);
-const STORAGE_KEY = "ccs_faculty_v2";
+const ENV_API_URL = import.meta.env.VITE_API_URL || "";
 
 export const CURRICULUM = {
   IT: {
@@ -176,16 +176,6 @@ function normalizeFaculty(f) {
 }
 
 function initialFaculty() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map(normalizeFaculty);
-    }
-  } catch {
-    // ignore
-  }
-
   const base = [
     { id: 1, name: "Dr. Maria Smith", department: "Computer Science", specialization: "Algorithms and AI" },
     { id: 2, name: "Prof. Jonathan Johnson", department: "Information Technology", specialization: "Web and Mobile Development" },
@@ -219,36 +209,108 @@ function initialFaculty() {
   return withAssignments;
 }
 
+function getApiCandidates() {
+  const host =
+    typeof window !== "undefined" && window.location?.hostname
+      ? window.location.hostname
+      : "localhost";
+  return Array.from(
+    new Set(
+      [ENV_API_URL, `http://${host}:3001`, "http://localhost:3001", "http://127.0.0.1:3001"].filter(Boolean)
+    )
+  );
+}
+
 export function FacultyProvider({ children }) {
-  const [faculties, setFaculties] = useState(() => initialFaculty());
+  const [faculties, setFaculties] = useState([]);
+  const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
+
+  const requestWithFallback = async (path, options) => {
+    const candidates = [apiBase, ...getApiCandidates()].filter((v, i, a) => v && a.indexOf(v) === i);
+    let lastNetworkError = null;
+    for (const base of candidates) {
+      try {
+        const res = await fetch(`${base}${path}`, options);
+        setApiBase(base);
+        return res;
+      } catch (e) {
+        lastNetworkError = e;
+      }
+    }
+    throw new Error(
+      `Cannot reach API server.${lastNetworkError instanceof Error ? ` (${lastNetworkError.message})` : ""}`
+    );
+  };
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(faculties));
-    } catch {
-      // ignore
-    }
-  }, [faculties]);
+    const load = async () => {
+      try {
+        const res = await requestWithFallback("/faculties");
+        if (!res.ok) throw new Error("Failed to load faculties");
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length) {
+          setFaculties(rows.map(normalizeFaculty));
+          return;
+        }
+        const defaults = initialFaculty();
+        await requestWithFallback("/bootstrap/frontend-dummy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ faculties: defaults, syllabi: SYLLABI }),
+        });
+        const refresh = await requestWithFallback("/faculties");
+        if (!refresh.ok) throw new Error("Failed to load faculties");
+        const list = await refresh.json();
+        setFaculties(Array.isArray(list) ? list.map(normalizeFaculty) : []);
+      } catch {
+        setFaculties(initialFaculty());
+      }
+    };
+    load();
+  }, []);
 
   const api = useMemo(() => {
-    const addFaculty = (payload) => {
-      const next = normalizeFaculty({ ...payload, id: Date.now() });
-      setFaculties((prev) => [next, ...prev]);
+    const refresh = async () => {
+      const res = await requestWithFallback("/faculties");
+      if (!res.ok) throw new Error("Failed to load faculties");
+      const rows = await res.json();
+      setFaculties(Array.isArray(rows) ? rows.map(normalizeFaculty) : []);
+    };
+
+    const addFaculty = async (payload) => {
+      const res = await requestWithFallback("/faculties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to add faculty");
+      await refresh();
+      const next = await res.json();
       return next;
     };
 
-    const updateFaculty = (id, updates) => {
-      setFaculties((prev) =>
-        prev.map((f) => (String(f.id) === String(id) ? normalizeFaculty({ ...f, ...updates, id: f.id }) : f))
-      );
+    const updateFaculty = async (id, updates) => {
+      const existing = faculties.find((f) => String(f.id) === String(id));
+      const payload = normalizeFaculty({ ...(existing || {}), ...updates, id });
+      const res = await requestWithFallback(`/faculties/${encodeURIComponent(String(id))}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to update faculty");
+      await refresh();
     };
 
-    const removeFaculty = (id) => {
-      setFaculties((prev) => prev.filter((f) => String(f.id) !== String(id)));
+    const removeFaculty = async (id) => {
+      const res = await requestWithFallback(`/faculties/${encodeURIComponent(String(id))}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) throw new Error("Failed to delete faculty");
+      await refresh();
     };
 
-    return { faculties, addFaculty, updateFaculty, removeFaculty };
-  }, [faculties]);
+    return { faculties, addFaculty, updateFaculty, removeFaculty, refresh, apiUrl: apiBase };
+  }, [faculties, apiBase]);
 
   return <FacultyContext.Provider value={api}>{children}</FacultyContext.Provider>;
 }
