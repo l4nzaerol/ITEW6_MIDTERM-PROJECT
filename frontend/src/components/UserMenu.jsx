@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 function UserMenu() {
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -22,9 +20,11 @@ function UserMenu() {
   }, []);
 
   const handleLogout = () => {
+    setOpen(false);
     localStorage.removeItem("ccs_isAuthenticated");
     localStorage.removeItem("ccs_user");
-    navigate("/", { replace: true });
+    // Hard redirect avoids stale protected route state after logout.
+    window.location.assign("/");
   };
 
   return (
