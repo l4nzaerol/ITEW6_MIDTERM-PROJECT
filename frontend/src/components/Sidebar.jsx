@@ -1,14 +1,8 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 function Sidebar() {
   const location = useLocation();
-  const navigate = useNavigate();
   const active = (path) => (location.pathname === path ? "activeLink" : "");
-
-  const handleLogout = () => {
-    localStorage.removeItem("ccs_isAuthenticated");
-    navigate("/", { replace: true });
-  };
 
   return (
     <div className="sidebar">
@@ -42,12 +36,6 @@ function Sidebar() {
         <Link className={active("/reports")} to="/reports">
           Search & Reports
         </Link>
-      </div>
-
-      <div className="sidebarFooter">
-        <button className="logoutBtn" onClick={handleLogout}>
-          Logout
-        </button>
       </div>
     </div>
   );

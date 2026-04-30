@@ -169,6 +169,76 @@
     margin-bottom:25px;
     position:relative;
   }
+
+.userMenuWrap{
+  position:fixed;
+  top:16px;
+  right:20px;
+  z-index:2000;
+}
+
+.userMenuTrigger{
+  border:1px solid #e5e7eb;
+  background:#fff;
+  color:#111827;
+  border-radius:999px;
+  padding:6px 10px 6px 6px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  box-shadow:0 6px 16px rgba(15,23,42,0.08);
+}
+
+.userMenuAvatar{
+  width:24px;
+  height:24px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  font-weight:800;
+  color:#111827;
+  background:#f3f4f6;
+}
+
+.userMenuName{
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+.userMenuDropdown{
+  margin-top:8px;
+  min-width:140px;
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  box-shadow:0 12px 22px rgba(15,23,42,0.12);
+  padding:6px;
+}
+
+.userMenuItem{
+  width:100%;
+  border:none;
+  background:transparent;
+  text-align:left;
+  padding:8px 10px;
+  border-radius:8px;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  color:#111827;
+}
+
+.userMenuItem:hover{
+  background:#f9fafb;
+}
+
+.userMenuItem.danger{
+  color:#b91c1c;
+}
   
   .searchBar{
     width:320px;

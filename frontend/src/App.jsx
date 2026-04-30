@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -11,6 +12,7 @@ import Reports from "./pages/Reports";
 import { StudentsProvider } from "./context/StudentsContext";
 import { EventsProvider } from "./context/EventsContext";
 import { FacultyProvider } from "./context/FacultyContext";
+import UserMenu from "./components/UserMenu";
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = localStorage.getItem("ccs_isAuthenticated") === "true";
@@ -20,12 +22,20 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+function AppChrome() {
+  const location = useLocation();
+  const isAuthenticated = localStorage.getItem("ccs_isAuthenticated") === "true";
+  if (!isAuthenticated || location.pathname === "/") return null;
+  return <UserMenu />;
+}
+
 function App() {
   return (
     <StudentsProvider>
       <EventsProvider>
         <FacultyProvider>
           <BrowserRouter>
+            <AppChrome />
             <Routes>
           <Route
             path="/"
