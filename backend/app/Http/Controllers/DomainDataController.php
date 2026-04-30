@@ -797,6 +797,27 @@ class DomainDataController extends Controller
                 'syllabusHandled' => ['IT-2nd Year-1st Sem-ITEW1', 'IT-3rd Year-1st Sem-ITEW3'],
                 'sectionsHandled' => ['IT2A', 'IT3B'],
             ],
+            [
+                'name' => 'Prof. Angela Reyes',
+                'department' => 'Information Technology',
+                'specialization' => 'Networking and Security',
+                'syllabusHandled' => ['IT-1st Year-1st Sem-CCS101'],
+                'sectionsHandled' => ['IT1A', 'IT4A'],
+            ],
+            [
+                'name' => 'Dr. Carlo Dizon',
+                'department' => 'Computer Science',
+                'specialization' => 'Software Engineering',
+                'syllabusHandled' => ['CS-3rd Year-1st Sem-CS302', 'CS-4th Year-1st Sem-CS401'],
+                'sectionsHandled' => ['CS3A', 'CS4A'],
+            ],
+            [
+                'name' => 'Prof. Liza Mendoza',
+                'department' => 'Information Technology',
+                'specialization' => 'Information Management',
+                'syllabusHandled' => ['IT-1st Year-1st Sem-CCS102'],
+                'sectionsHandled' => ['IT1B', 'IT3A'],
+            ],
         ];
     }
 
@@ -806,6 +827,9 @@ class DomainDataController extends Controller
             ['name' => 'Basketball Tryouts', 'type' => 'Sports', 'date' => '2026-03-07'],
             ['name' => 'Programming Contest', 'type' => 'Academic', 'date' => '2026-03-10'],
             ['name' => 'Coding Workshop', 'type' => 'Academic', 'date' => '2026-03-12'],
+            ['name' => 'Science Fair', 'type' => 'Academic', 'date' => '2026-03-15'],
+            ['name' => 'Hackathon', 'type' => 'Academic', 'date' => '2026-03-20'],
+            ['name' => 'Sports Festival', 'type' => 'Sports', 'date' => '2026-03-25'],
         ];
     }
 
@@ -819,35 +843,50 @@ class DomainDataController extends Controller
 
     private function defaultStudents(): array
     {
-        return [
-            [
-                'studentNo' => '2026-00001',
-                'firstName' => 'Alice',
-                'middleName' => '',
-                'lastName' => 'Santos',
-                'course' => 'BSCS',
-                'yearLevel' => '2nd Year',
-                'section' => 'CS2A',
-                'skills' => ['programming', 'algorithms'],
-                'affiliations' => ['Association of Computer Science Students'],
-                'violations' => [],
-                'academicHistory' => [['term' => 'AY 2025-2026 1st Sem', 'gpa' => 1.5, 'standing' => "Dean's Lister"]],
-                'nonAcademicHistory' => [['activity' => 'Programming Contest', 'role' => 'Participant']],
-            ],
-            [
-                'studentNo' => '2026-00002',
-                'firstName' => 'Bob',
-                'middleName' => '',
-                'lastName' => 'Reyes',
-                'course' => 'BSIT',
-                'yearLevel' => '3rd Year',
-                'section' => 'IT3B',
-                'skills' => ['web development', 'programming'],
-                'affiliations' => ['Sites'],
-                'violations' => ['Late submission in ITEW3'],
-                'academicHistory' => [['term' => 'AY 2025-2026 1st Sem', 'gpa' => 1.9, 'standing' => 'Good Standing']],
-                'nonAcademicHistory' => [['activity' => 'Hackathon 2026', 'role' => 'Lead Developer']],
-            ],
+        $firstNames = [
+            'Adrian', 'Bianca', 'Carlo', 'Diana', 'Ethan', 'Faith', 'Gabriel', 'Hannah', 'Ivan', 'Julia',
+            'Kyle', 'Lara', 'Marco', 'Nina', 'Owen', 'Paula', 'Quinn', 'Rafael', 'Sophia', 'Tristan',
+            'Uma', 'Vince', 'Wendy', 'Xander', 'Yasmin', 'Zach',
         ];
+        $lastNames = [
+            'Santos', 'Reyes', 'Cruz', 'Garcia', 'Mendoza', 'Torres', 'Ramos', 'Castro', 'Navarro', 'Flores',
+            'Bautista', 'Morales', 'Aquino', 'Villanueva', 'Herrera', 'Dela Cruz',
+        ];
+        $yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+        $courses = ['BSIT', 'BSCS'];
+        $skillsPool = ['programming', 'basketball', 'web development', 'database design', 'networking'];
+        $affiliationPool = ['Sites', 'Association of Computer Science Students'];
+
+        $rows = [];
+        for ($i = 0; $i < 1200; $i++) {
+            $firstName = $firstNames[$i % count($firstNames)];
+            $lastName = $lastNames[($i * 3) % count($lastNames)];
+            $course = $courses[$i % count($courses)];
+            $yearLevel = $yearLevels[$i % count($yearLevels)];
+            $sectionPrefix = $course === 'BSIT' ? 'IT' : 'CS';
+            $section = $sectionPrefix.(($i % 4) + 1).chr(65 + ($i % 3));
+            $studentNo = '2026-'.str_pad((string) ($i + 1), 5, '0', STR_PAD_LEFT);
+
+            $skill1 = $skillsPool[$i % count($skillsPool)];
+            $skill2 = $skillsPool[($i + 7) % count($skillsPool)];
+            $skill3 = $skillsPool[($i + 14) % count($skillsPool)];
+
+            $rows[] = [
+                'studentNo' => $studentNo,
+                'firstName' => $firstName,
+                'middleName' => '',
+                'lastName' => $lastName,
+                'course' => $course,
+                'yearLevel' => $yearLevel,
+                'section' => $section,
+                'skills' => array_values(array_unique([$skill1, $skill2, $skill3])),
+                'affiliations' => [$affiliationPool[$i % 2]],
+                'violations' => [],
+                'academicHistory' => [],
+                'nonAcademicHistory' => [],
+            ];
+        }
+
+        return $rows;
     }
 }

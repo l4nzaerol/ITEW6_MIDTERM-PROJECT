@@ -67,6 +67,27 @@ class DomainDataSeeder extends Seeder
                 'syllabus_ids' => ['IT-2nd Year-1st Sem-ITEW1', 'IT-3rd Year-1st Sem-ITEW3'],
                 'sections' => ['IT2A', 'IT3B'],
             ],
+            [
+                'name' => 'Prof. Angela Reyes',
+                'department' => 'Information Technology',
+                'specialization' => 'Networking and Security',
+                'syllabus_ids' => ['IT-1st Year-1st Sem-CCS101'],
+                'sections' => ['IT1A', 'IT4A'],
+            ],
+            [
+                'name' => 'Dr. Carlo Dizon',
+                'department' => 'Computer Science',
+                'specialization' => 'Software Engineering',
+                'syllabus_ids' => ['CS-3rd Year-1st Sem-CS302', 'CS-4th Year-1st Sem-CS401'],
+                'sections' => ['CS3A', 'CS4A'],
+            ],
+            [
+                'name' => 'Prof. Liza Mendoza',
+                'department' => 'Information Technology',
+                'specialization' => 'Information Management',
+                'syllabus_ids' => ['IT-1st Year-1st Sem-CCS102'],
+                'sections' => ['IT1B', 'IT3A'],
+            ],
         ];
 
         foreach ($rows as $row) {
@@ -102,6 +123,9 @@ class DomainDataSeeder extends Seeder
             ['name' => 'Basketball Tryouts', 'type' => 'Sports', 'event_date' => '2026-03-07'],
             ['name' => 'Programming Contest', 'type' => 'Academic', 'event_date' => '2026-03-10'],
             ['name' => 'Coding Workshop', 'type' => 'Academic', 'event_date' => '2026-03-12'],
+            ['name' => 'Science Fair', 'type' => 'Academic', 'event_date' => '2026-03-15'],
+            ['name' => 'Hackathon', 'type' => 'Academic', 'event_date' => '2026-03-20'],
+            ['name' => 'Sports Festival', 'type' => 'Sports', 'event_date' => '2026-03-25'],
         ];
 
         foreach ($rows as $row) {
@@ -134,32 +158,47 @@ class DomainDataSeeder extends Seeder
 
     private function seedStudents(): void
     {
-        $rows = [
-            [
-                'student_no' => '2026-00001',
-                'first_name' => 'Alice',
-                'middle_name' => null,
-                'last_name' => 'Santos',
-                'course' => 'BSCS',
-                'year_level' => '2nd Year',
-                'section' => 'CS2A',
-                'skills' => ['programming', 'algorithms'],
-                'affiliations' => ['Association of Computer Science Students'],
-                'violations' => [],
-            ],
-            [
-                'student_no' => '2026-00002',
-                'first_name' => 'Bob',
-                'middle_name' => null,
-                'last_name' => 'Reyes',
-                'course' => 'BSIT',
-                'year_level' => '3rd Year',
-                'section' => 'IT3B',
-                'skills' => ['web development', 'programming'],
-                'affiliations' => ['Sites'],
-                'violations' => ['Late submission in ITEW3'],
-            ],
+        $firstNames = [
+            'Adrian', 'Bianca', 'Carlo', 'Diana', 'Ethan', 'Faith', 'Gabriel', 'Hannah', 'Ivan', 'Julia',
+            'Kyle', 'Lara', 'Marco', 'Nina', 'Owen', 'Paula', 'Quinn', 'Rafael', 'Sophia', 'Tristan',
+            'Uma', 'Vince', 'Wendy', 'Xander', 'Yasmin', 'Zach',
         ];
+        $lastNames = [
+            'Santos', 'Reyes', 'Cruz', 'Garcia', 'Mendoza', 'Torres', 'Ramos', 'Castro', 'Navarro', 'Flores',
+            'Bautista', 'Morales', 'Aquino', 'Villanueva', 'Herrera', 'Dela Cruz',
+        ];
+        $yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+        $courses = ['BSIT', 'BSCS'];
+        $skillsPool = ['programming', 'basketball', 'web development', 'database design', 'networking'];
+        $affiliationPool = ['Sites', 'Association of Computer Science Students'];
+
+        $rows = [];
+        for ($i = 0; $i < 1200; $i++) {
+            $firstName = $firstNames[$i % count($firstNames)];
+            $lastName = $lastNames[($i * 3) % count($lastNames)];
+            $course = $courses[$i % count($courses)];
+            $yearLevel = $yearLevels[$i % count($yearLevels)];
+            $sectionPrefix = $course === 'BSIT' ? 'IT' : 'CS';
+            $section = $sectionPrefix.(($i % 4) + 1).chr(65 + ($i % 3));
+            $studentNo = '2026-'.str_pad((string) ($i + 1), 5, '0', STR_PAD_LEFT);
+
+            $skill1 = $skillsPool[$i % count($skillsPool)];
+            $skill2 = $skillsPool[($i + 7) % count($skillsPool)];
+            $skill3 = $skillsPool[($i + 14) % count($skillsPool)];
+
+            $rows[] = [
+                'student_no' => $studentNo,
+                'first_name' => $firstName,
+                'middle_name' => null,
+                'last_name' => $lastName,
+                'course' => $course,
+                'year_level' => $yearLevel,
+                'section' => $section,
+                'skills' => array_values(array_unique([$skill1, $skill2, $skill3])),
+                'affiliations' => [$affiliationPool[$i % 2]],
+                'violations' => [],
+            ];
+        }
 
         foreach ($rows as $row) {
             $student = Student::query()->updateOrCreate(
