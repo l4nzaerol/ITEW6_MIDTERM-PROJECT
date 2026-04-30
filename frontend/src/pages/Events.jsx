@@ -28,12 +28,16 @@ function Events() {
     setEditing(null);
   };
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
     const payload = { name: form.name, type: form.type, date: form.date };
-    if (editing?.id) updateEvent(editing.id, payload);
-    else addEvent(payload);
-    closeModal();
+    try {
+      if (editing?.id) await updateEvent(editing.id, payload);
+      else await addEvent(payload);
+      closeModal();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to save event");
+    }
   };
 
   return (
@@ -98,7 +102,10 @@ function Events() {
                           className="chip dangerChip"
                           onClick={() => {
                             const ok = window.confirm("Delete this event?");
-                            if (ok) deleteEvent(ev.id);
+                            if (!ok) return;
+                            deleteEvent(ev.id).catch((e) => {
+                              alert(e instanceof Error ? e.message : "Failed to delete event");
+                            });
                           }}
                         >
                           Delete

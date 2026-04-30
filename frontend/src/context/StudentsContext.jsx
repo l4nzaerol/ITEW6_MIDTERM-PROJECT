@@ -4,65 +4,25 @@ const StudentsContext = createContext(null);
 
 const ENV_API_URL = import.meta.env.VITE_API_URL || "";
 
-const ALLOWED_AFFILIATIONS = ["Sites", "Association of Computer Science Students"];
-
-function makeDummyStudents(total = 1200) {
-  const firstNames = [
-    "Adrian","Bianca","Carlo","Diana","Ethan","Faith","Gabriel","Hannah","Ivan","Julia",
-    "Kyle","Lara","Marco","Nina","Owen","Paula","Quinn","Rafael","Sophia","Tristan",
-    "Uma","Vince","Wendy","Xander","Yasmin","Zach",
-  ];
-  const lastNames = [
-    "Santos","Reyes","Cruz","Garcia","Mendoza","Torres","Ramos","Castro","Navarro","Flores",
-    "Bautista","Morales","Aquino","Villanueva","Herrera","Dela Cruz",
-  ];
-  const yearLevels = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
-  const courses = ["BSIT", "BSCS"];
-  const skillsPool = ["programming", "basketball", "web development", "database design", "networking"];
-  const pick = (arr, i) => arr[i % arr.length];
-  const pickN = (arr, i, n) => {
-    const out = [];
-    for (let k = 0; k < n; k++) out.push(arr[(i + k * 7) % arr.length]);
-    return Array.from(new Set(out));
-  };
-
-  const list = [];
-  for (let i = 0; i < total; i++) {
-    const firstName = pick(firstNames, i);
-    const lastName = pick(lastNames, i * 3);
-    const year = yearLevels[i % yearLevels.length];
-    const course = courses[i % courses.length];
-    const sectionPrefix = course === "BSIT" ? "IT" : "CS";
-    const section = `${sectionPrefix}${String((i % 4) + 1)}${String.fromCharCode(65 + (i % 3))}`;
-    const studentNo = `2026-${String(i + 1).padStart(5, "0")}`;
-    list.push({
-      id: i + 1,
-      studentNo,
-      firstName,
-      middleName: "",
-      lastName,
-      name: `${firstName} ${lastName}`,
-      course,
-      year,
-      section,
-      skills: pickN(skillsPool, i, 3),
-      affiliations: [ALLOWED_AFFILIATIONS[i % 2]],
-      violations: [],
-      academicHistory: [],
-      nonAcademicHistory: [],
-    });
-  }
-  return list;
-}
-
 function getApiCandidates() {
   const host =
     typeof window !== "undefined" && window.location?.hostname
       ? window.location.hostname
       : "localhost";
+  const envBase = String(ENV_API_URL || "").trim().replace(/\/+$/, "");
+  const envApiBase = envBase && !envBase.endsWith("/api") ? `${envBase}/api` : envBase;
   return Array.from(
     new Set(
-      [ENV_API_URL, `http://${host}:3001`, "http://localhost:3001", "http://127.0.0.1:3001"].filter(Boolean)
+      [
+        `http://${host}:8000`,
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        `http://${host}:8000/api`,
+        "http://localhost:8000/api",
+        "http://127.0.0.1:8000/api",
+        envBase,
+        envApiBase,
+      ].filter(Boolean)
     )
   );
 }
@@ -73,24 +33,47 @@ export function StudentsProvider({ children }) {
   const [error, setError] = useState("");
   const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
 
-  const requestWithFallback = async (path, options) => {
+  const requestWithFallback = async (path, options = {}) => {
     const candidates = [apiBase, ...getApiCandidates()].filter(
       (v, i, a) => v && a.indexOf(v) === i
     );
     let lastNetworkError = null;
+    let lastHttpResponse = null;
+    const cleanPath = String(path || "").startsWith("/") ? String(path) : `/${String(path || "")}`;
+    const pathVariants = cleanPath.startsWith("/api/")
+      ? [cleanPath, cleanPath.replace(/^\/api/, "")]
+      : [cleanPath, `/api${cleanPath}`];
 
     for (const base of candidates) {
-      try {
-        const res = await fetch(`${base}${path}`, options);
-        setApiBase(base);
-        return res;
-      } catch (e) {
-        lastNetworkError = e;
+      const cleanBase = String(base || "").replace(/\/+$/, "");
+      const variants = cleanBase.endsWith("/api")
+        ? [cleanBase, cleanBase.slice(0, -4)]
+        : [cleanBase, `${cleanBase}/api`];
+
+      for (const variant of variants) {
+        for (const p of pathVariants) {
+          try {
+            const res = await fetch(`${variant}${p}`, options);
+            const shouldTryNext = res.status >= 500 || res.status === 404 || res.status === 405;
+            if (shouldTryNext) {
+              lastHttpResponse = res;
+              continue;
+            }
+            setApiBase(variant);
+            return res;
+          } catch (e) {
+            lastNetworkError = e;
+          }
+        }
       }
     }
 
+    if (lastHttpResponse) {
+      return lastHttpResponse;
+    }
+
     throw new Error(
-      `Cannot reach API server. Make sure backend is running on port 3001.${
+      `Cannot reach API server. Make sure backend is running on port 8000.${
         lastNetworkError instanceof Error ? ` (${lastNetworkError.message})` : ""
       }`
     );
@@ -105,22 +88,9 @@ export function StudentsProvider({ children }) {
         if (!res.ok) throw new Error("Failed to load students");
         const list = await res.json();
         const arr = Array.isArray(list) ? list : [];
-        if (arr.length === 0) {
-          await requestWithFallback("/bootstrap/frontend-dummy", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ seedStudents: true, seedDefaults: true }),
-          });
-          const refresh = await requestWithFallback("/students");
-          if (!refresh.ok) throw new Error("Failed to load students");
-          const seeded = await refresh.json();
-          setStudents(Array.isArray(seeded) ? seeded : []);
-        } else {
-          setStudents(arr);
-        }
+        setStudents(arr);
       } catch (e) {
-        // Fallback so UI still shows 1000+ even if backend isn't running/seeded.
-        setStudents(makeDummyStudents(1200));
+        setStudents([]);
         setError(e instanceof Error ? e.message : "Failed to load students");
       } finally {
         setLoading(false);
@@ -151,12 +121,17 @@ export function StudentsProvider({ children }) {
         body: JSON.stringify(student),
       });
       if (!res.ok) {
-        let message = "Failed to add student";
+        let message = `Failed to add student (HTTP ${res.status})`;
         try {
           const body = await res.json();
           if (body?.message) message = body.message;
         } catch {
-          // ignore
+          try {
+            const text = await res.text();
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          } catch {
+            // ignore
+          }
         }
         throw new Error(message);
       }
@@ -171,7 +146,21 @@ export function StudentsProvider({ children }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error("Failed to update student");
+      if (!res.ok) {
+        let message = `Failed to update student (HTTP ${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          try {
+            const text = await res.text();
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(message);
+      }
       const updated = await res.json();
       setStudents((prev) => prev.map((s) => (s.studentNo === studentNo ? updated : s)));
       // Re-fetch to avoid edge cases when studentNo changes or ids are missing.
@@ -185,7 +174,21 @@ export function StudentsProvider({ children }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error("Failed to update student");
+      if (!res.ok) {
+        let message = `Failed to update student (HTTP ${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          try {
+            const text = await res.text();
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(message);
+      }
       const updated = await res.json();
       setStudents((prev) =>
         prev.map((s) =>
@@ -201,12 +204,17 @@ export function StudentsProvider({ children }) {
         method: "DELETE",
       });
       if (!res.ok && res.status !== 204) {
-        let message = "Failed to delete student";
+        let message = `Failed to delete student (HTTP ${res.status})`;
         try {
           const body = await res.json();
           if (body?.message) message = body.message;
         } catch {
-          // ignore
+          try {
+            const text = await res.text();
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          } catch {
+            // ignore
+          }
         }
         throw new Error(message);
       }
@@ -220,12 +228,17 @@ export function StudentsProvider({ children }) {
         method: "DELETE",
       });
       if (!res.ok && res.status !== 204) {
-        let message = "Failed to delete student";
+        let message = `Failed to delete student (HTTP ${res.status})`;
         try {
           const body = await res.json();
           if (body?.message) message = body.message;
         } catch {
-          // ignore
+          try {
+            const text = await res.text();
+            if (text) message = `${message}: ${text.slice(0, 200)}`;
+          } catch {
+            // ignore
+          }
         }
         throw new Error(message);
       }

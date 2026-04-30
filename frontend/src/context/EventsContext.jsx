@@ -22,9 +22,23 @@ function getApiCandidates() {
     typeof window !== "undefined" && window.location?.hostname
       ? window.location.hostname
       : "localhost";
+  const envBase = String(ENV_API_URL || "").trim().replace(/\/+$/, "");
+  const envApiBase = envBase && !envBase.endsWith("/api") ? `${envBase}/api` : envBase;
   return Array.from(
     new Set(
-      [ENV_API_URL, `http://${host}:3001`, "http://localhost:3001", "http://127.0.0.1:3001"].filter(Boolean)
+      [
+        envBase,
+        envApiBase,
+        `http://${host}:3001`,
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        `http://${host}:8000`,
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        `http://${host}:8000/api`,
+        "http://localhost:8000/api",
+        "http://127.0.0.1:8000/api",
+      ].filter(Boolean)
     )
   );
 }
@@ -36,14 +50,36 @@ export function EventsProvider({ children }) {
   const requestWithFallback = async (path, options) => {
     const candidates = [apiBase, ...getApiCandidates()].filter((v, i, a) => v && a.indexOf(v) === i);
     let lastNetworkError = null;
+    let lastHttpResponse = null;
+    const cleanPath = String(path || "").startsWith("/") ? String(path) : `/${String(path || "")}`;
+    const pathVariants = cleanPath.startsWith("/api/")
+      ? [cleanPath, cleanPath.replace(/^\/api/, "")]
+      : [cleanPath, `/api${cleanPath}`];
     for (const base of candidates) {
-      try {
-        const res = await fetch(`${base}${path}`, options);
-        setApiBase(base);
-        return res;
-      } catch (e) {
-        lastNetworkError = e;
+      const cleanBase = String(base || "").replace(/\/+$/, "");
+      const variants = cleanBase.endsWith("/api")
+        ? [cleanBase, cleanBase.slice(0, -4)]
+        : [cleanBase, `${cleanBase}/api`];
+
+      for (const variant of variants) {
+        for (const p of pathVariants) {
+          try {
+            const res = await fetch(`${variant}${p}`, options);
+            const shouldTryNext = res.status >= 500 || res.status === 404 || res.status === 405;
+            if (shouldTryNext) {
+              lastHttpResponse = res;
+              continue;
+            }
+            setApiBase(variant);
+            return res;
+          } catch (e) {
+            lastNetworkError = e;
+          }
+        }
       }
+    }
+    if (lastHttpResponse) {
+      return lastHttpResponse;
     }
     throw new Error(
       `Cannot reach API server.${lastNetworkError instanceof Error ? ` (${lastNetworkError.message})` : ""}`
@@ -91,7 +127,16 @@ export function EventsProvider({ children }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Failed to add event");
+      if (!res.ok) {
+        let message = "Failed to add event";
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
       await refresh();
     };
 
@@ -101,7 +146,16 @@ export function EventsProvider({ children }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error("Failed to update event");
+      if (!res.ok) {
+        let message = "Failed to update event";
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
       await refresh();
     };
 
@@ -109,7 +163,16 @@ export function EventsProvider({ children }) {
       const res = await requestWithFallback(`/events/${encodeURIComponent(String(id))}`, {
         method: "DELETE",
       });
-      if (!res.ok && res.status !== 204) throw new Error("Failed to delete event");
+      if (!res.ok && res.status !== 204) {
+        let message = "Failed to delete event";
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
       await refresh();
     };
 

@@ -98,7 +98,7 @@ function Students() {
   );
 
   const filteredStudents = useMemo(() => {
-    return students.filter((s) => {
+    const filtered = students.filter((s) => {
       const q = search.toLowerCase().trim();
 
       if (q) {
@@ -125,6 +125,16 @@ function Students() {
       if (skillFilter === "basketball" && !hasSkill("basketball")) return false;
 
       return true;
+    });
+
+    // Show newest records first so newly added students appear on top.
+    return [...filtered].sort((a, b) => {
+      const aId = Number(a?.id);
+      const bId = Number(b?.id);
+      const aHasId = Number.isFinite(aId);
+      const bHasId = Number.isFinite(bId);
+      if (aHasId && bHasId) return bId - aId;
+      return String(b?.studentNo || "").localeCompare(String(a?.studentNo || ""));
     });
   }, [
     students,
@@ -210,10 +220,10 @@ function Students() {
     const ok = window.confirm("Delete this student?");
     if (!ok) return;
     try {
-      if (student?.studentNo) {
-        await deleteStudent(student.studentNo);
-      } else if (student?.id !== undefined && student?.id !== null) {
+      if (student?.id !== undefined && student?.id !== null) {
         await deleteStudentById(student.id);
+      } else if (student?.studentNo) {
+        await deleteStudent(student.studentNo);
       } else {
         throw new Error("Missing identifiers (studentNo / id).");
       }
@@ -304,12 +314,17 @@ function Students() {
       nonAcademicHistory,
     };
 
-    const updated = selectedStudent.studentNo
-      ? await updateStudent(selectedStudent.studentNo, updates)
-      : await updateStudentById(selectedStudent.id, updates);
+    try {
+      const updated =
+        selectedStudent?.id !== undefined && selectedStudent?.id !== null
+          ? await updateStudentById(selectedStudent.id, updates)
+          : await updateStudent(selectedStudent.studentNo, updates);
 
-    if (updated) setSelectedStudent(updated);
-    setIsViewingEdit(false);
+      if (updated) setSelectedStudent(updated);
+      setIsViewingEdit(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update student");
+    }
   };
 
   return (

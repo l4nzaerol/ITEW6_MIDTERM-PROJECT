@@ -3,42 +3,6 @@ import Modal from "../components/Modal";
 import { useMemo, useState } from "react";
 import { CURRICULUM, SECTION_OPTIONS, SYLLABI, useFaculty } from "../context/FacultyContext";
 
-function groupSyllabiByYearAndTerm(syllabusIds, syllabusById) {
-  const grouped = new Map(); // yearLevel -> term -> array
-  (syllabusIds || [])
-    .map((id) => syllabusById.get(id))
-    .filter(Boolean)
-    .forEach((s) => {
-      if (!grouped.has(s.yearLevel)) grouped.set(s.yearLevel, new Map());
-      const byTerm = grouped.get(s.yearLevel);
-      if (!byTerm.has(s.term)) byTerm.set(s.term, []);
-      byTerm.get(s.term).push(s);
-    });
-
-  const yearOrder = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
-  const termOrder = ["1st Sem", "2nd Sem"];
-
-  return Array.from(grouped.entries())
-    .sort(
-      ([a], [b]) =>
-        (yearOrder.indexOf(a) === -1 ? 99 : yearOrder.indexOf(a)) -
-        (yearOrder.indexOf(b) === -1 ? 99 : yearOrder.indexOf(b))
-    )
-    .map(([yearLevel, termsMap]) => ({
-      yearLevel,
-      terms: Array.from(termsMap.entries())
-        .sort(
-          ([a], [b]) =>
-            (termOrder.indexOf(a) === -1 ? 99 : termOrder.indexOf(a)) -
-            (termOrder.indexOf(b) === -1 ? 99 : termOrder.indexOf(b))
-        )
-        .map(([term, items]) => ({
-          term,
-          courses: items.slice().sort((x, y) => String(x.code).localeCompare(String(y.code))),
-        })),
-    }));
-}
-
 function Faculty() {
   const { faculties, addFaculty, updateFaculty, removeFaculty } = useFaculty();
   const [showFormModal, setShowFormModal] = useState(false);
@@ -104,14 +68,18 @@ function Faculty() {
     resetForm();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (editingFacultyId !== null) {
-      updateFaculty(editingFacultyId, form);
-    } else {
-      addFaculty(form);
+    try {
+      if (editingFacultyId !== null) {
+        await updateFaculty(editingFacultyId, form);
+      } else {
+        await addFaculty(form);
+      }
+      closeFormModal();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to save faculty");
     }
-    closeFormModal();
   };
 
   const syllabusById = useMemo(
@@ -163,16 +131,23 @@ function Faculty() {
         </div>
 
         <div className="studentsGrid">
-          {faculties.map((f) => (
-            <div key={f.id} className="dashPanel">
-              <div className="dashPanelHeader">
-                <h3>{f.name}</h3>
+          {faculties.map((f) => {
+            const handledCourses = (f.syllabusHandled || [])
+              .map((id) => syllabusById.get(id))
+              .filter(Boolean)
+              .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+
+            return (
+            <div key={f.id} className="dashPanel facultyCardPanel">
+              <div className="facultySimpleHeader">
+                <div className="facultyAvatar">{String(f.name || "?").trim().charAt(0).toUpperCase()}</div>
+                <div className="facultyNameWrap">
+                  <h3>{f.name}</h3>
+                  <div className="facultySubline">{f.specialization || "General faculty"}</div>
+                </div>
                 <span className="dashBadge">{f.department}</span>
               </div>
               <div className="facultyMetaRow">
-                <div className="infoItemMeta">
-                  <strong>Specialization:</strong> {f.specialization || "-"}
-                </div>
                 <div className="facultyMetaStats">
                   <span className="dashPill soft">
                     {(f.syllabusHandled || []).length} courses
@@ -185,43 +160,12 @@ function Faculty() {
 
               <div className="facultyBlock">
                 <div className="facultyBlockTitle">Handled courses</div>
-                {f.syllabusHandled && f.syllabusHandled.length > 0 ? (
-                  <div className="facultyHandledYears">
-                    {groupSyllabiByYearAndTerm(f.syllabusHandled, syllabusById).map((y) => (
-                      <div key={`${f.id}-${y.yearLevel}`} className="yearBlock">
-                        <div className="yearHeader">
-                          <span className="dashPill">{y.yearLevel}</span>
-                        </div>
-                        <div className="termColumns">
-                          {y.terms.map((t) => (
-                            <div key={`${f.id}-${y.yearLevel}-${t.term}`} className="termColumn">
-                              <div className="termHeader">{t.term}</div>
-                              <div className="courseMiniList">
-                                {t.courses.map((c) => (
-                                  <div key={c.id} className="courseMiniItem">
-                                    <div className="courseMiniTop">
-                                      <span className="courseCode">{c.code}</span>
-                                      <span className="courseTitle">{c.title}</span>
-                                    </div>
-                                    <div style={{ marginTop: 8 }}>
-                                      <button
-                                        type="button"
-                                        className="chip dangerChip"
-                                        style={{ padding: "4px 8px", fontSize: 11 }}
-                                        onClick={() => {
-                                          const next = (f.syllabusHandled || []).filter((sid) => sid !== c.id);
-                                          updateFaculty(f.id, { syllabusHandled: next });
-                                        }}
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                {handledCourses.length > 0 ? (
+                  <div className="facultySimpleCourses">
+                    {handledCourses.map((c) => (
+                      <div key={c.id} className="facultySimpleCourseItem">
+                        <span className="courseCode">{c.code}</span>
+                        <span className="courseTitle">{c.title}</span>
                       </div>
                     ))}
                   </div>
@@ -233,23 +177,9 @@ function Faculty() {
               {f.sectionsHandled?.length > 0 && (
                 <div className="facultyBlock">
                   <div className="facultyBlockTitle">Handled sections</div>
-                  <div className="dashChips">
+                  <div className="facultySimpleSections">
                     {f.sectionsHandled.map((sec) => (
-                      <span key={sec} className="dashChip">
-                        <span className="dashChipName">{sec}</span>
-                        <span className="dashChipCount">Section</span>
-                        <button
-                          type="button"
-                          className="chip dangerChip"
-                          style={{ marginLeft: 6, padding: "3px 7px", fontSize: 11 }}
-                          onClick={() => {
-                            const next = (f.sectionsHandled || []).filter((item) => item !== sec);
-                            updateFaculty(f.id, { sectionsHandled: next });
-                          }}
-                        >
-                          x
-                        </button>
-                      </span>
+                      <span key={sec} className="facultySectionTag">{sec}</span>
                     ))}
                   </div>
                 </div>
@@ -267,14 +197,17 @@ function Faculty() {
                   className="chip dangerChip"
                   onClick={() => {
                     const ok = window.confirm("Remove this faculty?");
-                    if (ok) removeFaculty(f.id);
+                    if (!ok) return;
+                    removeFaculty(f.id).catch((e) => {
+                      alert(e instanceof Error ? e.message : "Failed to delete faculty");
+                    });
                   }}
                 >
                   Delete
                 </button>
               </div>
             </div>
-          ))}
+          )})}
         </div>
 
         <div className="dashStack" style={{ marginTop: 16 }}>
