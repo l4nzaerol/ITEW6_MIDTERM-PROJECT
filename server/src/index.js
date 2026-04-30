@@ -153,17 +153,58 @@ const DEFAULT_EVENTS = [
   { name: "Sports Festival", type: "Sports", date: "2026-03-25" },
 ];
 
+const DEFAULT_SYLLABI = [
+  { id: "IT-1st Year-1st Sem-CCS101", track: "IT", yearLevel: "1st Year", term: "1st Sem", code: "CCS101", title: "Introduction to Computing" },
+  { id: "IT-1st Year-1st Sem-CCS102", track: "IT", yearLevel: "1st Year", term: "1st Sem", code: "CCS102", title: "Computer Programming 1" },
+  { id: "IT-2nd Year-1st Sem-ITEW1", track: "IT", yearLevel: "2nd Year", term: "1st Sem", code: "ITEW1", title: "Electronic Commerce" },
+  { id: "IT-3rd Year-1st Sem-ITEW3", track: "IT", yearLevel: "3rd Year", term: "1st Sem", code: "ITEW3", title: "Server Side Scripting" },
+  { id: "CS-1st Year-1st Sem-CS101", track: "CS", yearLevel: "1st Year", term: "1st Sem", code: "CS101", title: "Computer Programming 1" },
+  { id: "CS-2nd Year-1st Sem-CS201", track: "CS", yearLevel: "2nd Year", term: "1st Sem", code: "CS201", title: "Object-Oriented Programming" },
+  { id: "CS-3rd Year-1st Sem-CS302", track: "CS", yearLevel: "3rd Year", term: "1st Sem", code: "CS302", title: "Database Systems" },
+  { id: "CS-4th Year-1st Sem-CS401", track: "CS", yearLevel: "4th Year", term: "1st Sem", code: "CS401", title: "Capstone Project 1" },
+];
+
 const DEFAULT_SCHEDULES = [
   { course: "CS101", section: "CS2A", room: "Room 201", lab: "Lab 3", faculty: "Dr. Maria Smith", time: "MWF 9:00-10:00" },
   { course: "IT210", section: "IT3B", room: "Room 305", lab: "Lab 1", faculty: "Prof. Jonathan Johnson", time: "TTh 1:00-2:30" },
 ];
 
 const DEFAULT_FACULTIES = [
-  { name: "Dr. Maria Smith", department: "Computer Science", specialization: "Algorithms and AI", syllabusHandled: [], sectionsHandled: ["CS1A","CS2A"] },
-  { name: "Prof. Jonathan Johnson", department: "Information Technology", specialization: "Web and Mobile Development", syllabusHandled: [], sectionsHandled: ["IT2A","IT3B"] },
-  { name: "Prof. Angela Reyes", department: "Information Technology", specialization: "Networking and Security", syllabusHandled: [], sectionsHandled: ["IT1A","IT4A"] },
-  { name: "Dr. Carlo Dizon", department: "Computer Science", specialization: "Software Engineering", syllabusHandled: [], sectionsHandled: ["CS3A","CS4A"] },
-  { name: "Prof. Liza Mendoza", department: "Information Technology", specialization: "Information Management", syllabusHandled: [], sectionsHandled: ["IT1B","IT3A"] },
+  {
+    name: "Dr. Maria Smith",
+    department: "Computer Science",
+    specialization: "Algorithms and AI",
+    syllabusHandled: ["CS-1st Year-1st Sem-CS101", "CS-2nd Year-1st Sem-CS201"],
+    sectionsHandled: ["CS1A", "CS2A"],
+  },
+  {
+    name: "Prof. Jonathan Johnson",
+    department: "Information Technology",
+    specialization: "Web and Mobile Development",
+    syllabusHandled: ["IT-2nd Year-1st Sem-ITEW1", "IT-3rd Year-1st Sem-ITEW3"],
+    sectionsHandled: ["IT2A", "IT3B"],
+  },
+  {
+    name: "Prof. Angela Reyes",
+    department: "Information Technology",
+    specialization: "Networking and Security",
+    syllabusHandled: ["IT-1st Year-1st Sem-CCS101"],
+    sectionsHandled: ["IT1A", "IT4A"],
+  },
+  {
+    name: "Dr. Carlo Dizon",
+    department: "Computer Science",
+    specialization: "Software Engineering",
+    syllabusHandled: ["CS-3rd Year-1st Sem-CS302", "CS-4th Year-1st Sem-CS401"],
+    sectionsHandled: ["CS3A", "CS4A"],
+  },
+  {
+    name: "Prof. Liza Mendoza",
+    department: "Information Technology",
+    specialization: "Information Management",
+    syllabusHandled: ["IT-1st Year-1st Sem-CCS102"],
+    sectionsHandled: ["IT1B", "IT3A"],
+  },
 ];
 
 async function ensureDomainTables() {
@@ -1183,9 +1224,16 @@ app.post("/bootstrap/frontend-dummy", async (req, res) => {
     },
   };
 
-  if (Array.isArray(syllabi) && syllabi.length) {
-    await upsertSyllabi(syllabi);
-    result.seeded.syllabi = syllabi.length;
+  const syllabiToSeed =
+    Array.isArray(syllabi) && syllabi.length
+      ? syllabi
+      : seedDefaults
+      ? DEFAULT_SYLLABI
+      : [];
+
+  if (syllabiToSeed.length) {
+    await upsertSyllabi(syllabiToSeed);
+    result.seeded.syllabi = syllabiToSeed.length;
   }
 
   const conn = await pool.getConnection();
@@ -1200,29 +1248,42 @@ app.post("/bootstrap/frontend-dummy", async (req, res) => {
         : [];
 
     if (facultiesToSeed.length) {
-      const [[countFac]] = await conn.query(`SELECT COUNT(*) AS total FROM faculties`);
-      if (Number(countFac.total) === 0) {
-        for (const raw of facultiesToSeed) {
-          const f = normalizeFacultyPayload(raw);
-          if (!f.name) continue;
+      for (const raw of facultiesToSeed) {
+        const f = normalizeFacultyPayload(raw);
+        if (!f.name) continue;
+        const [existing] = await conn.query(`SELECT faculty_id FROM faculties WHERE name = ? LIMIT 1`, [f.name]);
+        let facultyId = null;
+
+        if (Array.isArray(existing) && existing.length) {
+          facultyId = Number(existing[0].faculty_id);
+          await conn.query(
+            `UPDATE faculties SET department = ?, specialization = ? WHERE faculty_id = ?`,
+            [f.department, f.specialization || null, facultyId]
+          );
+        } else {
           const [ins] = await conn.query(
             `INSERT INTO faculties (name, department, specialization) VALUES (?, ?, ?)`,
             [f.name, f.department, f.specialization || null]
           );
-          for (const sid of f.syllabusHandled) {
-            await conn.query(
-              `INSERT IGNORE INTO faculty_syllabi (faculty_id, syllabus_id) VALUES (?, ?)`,
-              [ins.insertId, sid]
-            );
-          }
-          for (const sec of f.sectionsHandled) {
-            await conn.query(
-              `INSERT IGNORE INTO faculty_sections (faculty_id, section_code) VALUES (?, ?)`,
-              [ins.insertId, sec]
-            );
-          }
-          result.seeded.faculties += 1;
+          facultyId = Number(ins.insertId);
         }
+
+        await conn.query(`DELETE FROM faculty_syllabi WHERE faculty_id = ?`, [facultyId]);
+        await conn.query(`DELETE FROM faculty_sections WHERE faculty_id = ?`, [facultyId]);
+
+        for (const sid of f.syllabusHandled) {
+          await conn.query(
+            `INSERT IGNORE INTO faculty_syllabi (faculty_id, syllabus_id) VALUES (?, ?)`,
+            [facultyId, sid]
+          );
+        }
+        for (const sec of f.sectionsHandled) {
+          await conn.query(
+            `INSERT IGNORE INTO faculty_sections (faculty_id, section_code) VALUES (?, ?)`,
+            [facultyId, sec]
+          );
+        }
+        result.seeded.faculties += 1;
       }
     }
 

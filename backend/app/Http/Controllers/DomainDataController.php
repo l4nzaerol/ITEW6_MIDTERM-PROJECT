@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Event;
 use App\Models\Faculty;
 use App\Models\Schedule;
+use App\Models\Student;
 use App\Models\Syllabus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,111 @@ class DomainDataController extends Controller
             'code' => $r->course_code,
             'title' => $r->title,
         ]));
+    }
+
+    public function getStudents(Request $request): JsonResponse
+    {
+        $query = Student::query()->with(['skills', 'affiliations', 'violations', 'academicHistory', 'nonAcademicActivities']);
+
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('student_no', 'like', "%{$search}%")
+                    ->orWhere('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('middle_name', 'like', "%{$search}%")
+                    ->orWhere('course', 'like', "%{$search}%")
+                    ->orWhere('section', 'like', "%{$search}%");
+            });
+        }
+
+        $course = trim((string) $request->query('course', ''));
+        if ($course !== '') {
+            $query->where('course', $course);
+        }
+
+        $yearLevel = trim((string) ($request->query('yearLevel', $request->query('year', ''))));
+        if ($yearLevel !== '') {
+            $query->where('year_level', $yearLevel);
+        }
+
+        $section = trim((string) $request->query('section', ''));
+        if ($section !== '') {
+            $query->where('section', $section);
+        }
+
+        $rows = $query->orderBy('student_id')->get();
+
+        return response()->json($rows->map(fn (Student $student) => $this->mapStudent($student)));
+    }
+
+    public function createStudent(Request $request): JsonResponse
+    {
+        $payload = $this->normalizeStudent($request->all());
+        if ($payload['firstName'] === '' || $payload['lastName'] === '') {
+            return response()->json(['message' => 'First name and last name are required.'], 422);
+        }
+
+        if ($payload['studentNo'] !== '' && Student::query()->where('student_no', $payload['studentNo'])->exists()) {
+            return response()->json(['message' => 'Student number already exists.'], 409);
+        }
+
+        $student = DB::transaction(function () use ($payload) {
+            $row = Student::query()->create([
+                'student_no' => $payload['studentNo'] !== '' ? $payload['studentNo'] : null,
+                'first_name' => $payload['firstName'],
+                'middle_name' => $payload['middleName'] !== '' ? $payload['middleName'] : null,
+                'last_name' => $payload['lastName'],
+                'course' => $payload['course'] !== '' ? $payload['course'] : null,
+                'year_level' => $payload['yearLevel'] !== '' ? $payload['yearLevel'] : null,
+                'section' => $payload['section'] !== '' ? $payload['section'] : null,
+            ]);
+
+            $this->syncStudentRelations($row, $payload);
+            return $row->fresh(['skills', 'affiliations', 'violations', 'academicHistory', 'nonAcademicActivities']);
+        });
+
+        return response()->json($this->mapStudent($student), 201);
+    }
+
+    public function updateStudent(Request $request, string $studentNo): JsonResponse
+    {
+        $row = Student::query()->where('student_no', $studentNo)->first();
+        if (! $row) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        return $this->performStudentUpdate($row, $request->all());
+    }
+
+    public function updateStudentById(Request $request, int $id): JsonResponse
+    {
+        $row = Student::query()->find($id);
+        if (! $row) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        return $this->performStudentUpdate($row, $request->all());
+    }
+
+    public function deleteStudent(string $studentNo): JsonResponse
+    {
+        $deleted = Student::query()->where('student_no', $studentNo)->delete();
+        if (! $deleted) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        return response()->json([], 204);
+    }
+
+    public function deleteStudentById(int $id): JsonResponse
+    {
+        $deleted = Student::query()->where('student_id', $id)->delete();
+        if (! $deleted) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        return response()->json([], 204);
     }
 
     public function getFaculties(): JsonResponse
@@ -262,10 +368,32 @@ class DomainDataController extends Controller
     public function bootstrapFrontendDummy(Request $request): JsonResponse
     {
         $payload = $request->all();
+        $seedDefaults = (bool) ($payload['seedDefaults'] ?? false);
+        $seedStudents = (bool) ($payload['seedStudents'] ?? false);
+
         $syllabi = is_array($payload['syllabi'] ?? null) ? $payload['syllabi'] : [];
         $faculties = is_array($payload['faculties'] ?? null) ? $payload['faculties'] : [];
         $events = is_array($payload['events'] ?? null) ? $payload['events'] : [];
         $schedules = is_array($payload['schedules'] ?? null) ? $payload['schedules'] : [];
+        $students = is_array($payload['students'] ?? null) ? $payload['students'] : [];
+
+        if ($seedDefaults) {
+            if (empty($syllabi)) {
+                $syllabi = $this->defaultSyllabi();
+            }
+            if (empty($faculties)) {
+                $faculties = $this->defaultFaculties();
+            }
+            if (empty($events)) {
+                $events = $this->defaultEvents();
+            }
+            if (empty($schedules)) {
+                $schedules = $this->defaultSchedules();
+            }
+            if ($seedStudents && empty($students)) {
+                $students = $this->defaultStudents();
+            }
+        }
 
         $result = [
             'seeded' => [
@@ -273,10 +401,11 @@ class DomainDataController extends Controller
                 'faculties' => 0,
                 'events' => 0,
                 'schedules' => 0,
+                'students' => 0,
             ],
         ];
 
-        DB::transaction(function () use ($syllabi, $faculties, $events, $schedules, &$result) {
+        DB::transaction(function () use ($syllabi, $faculties, $events, $schedules, $students, $seedStudents, &$result) {
             if (! empty($syllabi)) {
                 foreach ($syllabi as $raw) {
                     $id = trim((string) ($raw['id'] ?? ''));
@@ -357,6 +486,32 @@ class DomainDataController extends Controller
                     $result['seeded']['schedules']++;
                 }
             }
+
+            if (! empty($students) && $seedStudents && Student::query()->count() === 0) {
+                foreach ($students as $raw) {
+                    $s = $this->normalizeStudent(is_array($raw) ? $raw : []);
+                    if ($s['firstName'] === '' || $s['lastName'] === '') {
+                        continue;
+                    }
+
+                    if ($s['studentNo'] !== '' && Student::query()->where('student_no', $s['studentNo'])->exists()) {
+                        continue;
+                    }
+
+                    $row = Student::query()->create([
+                        'student_no' => $s['studentNo'] !== '' ? $s['studentNo'] : null,
+                        'first_name' => $s['firstName'],
+                        'middle_name' => $s['middleName'] !== '' ? $s['middleName'] : null,
+                        'last_name' => $s['lastName'],
+                        'course' => $s['course'] !== '' ? $s['course'] : null,
+                        'year_level' => $s['yearLevel'] !== '' ? $s['yearLevel'] : null,
+                        'section' => $s['section'] !== '' ? $s['section'] : null,
+                    ]);
+
+                    $this->syncStudentRelations($row, $s);
+                    $result['seeded']['students']++;
+                }
+            }
         });
 
         return response()->json($result);
@@ -397,6 +552,302 @@ class DomainDataController extends Controller
             'lab' => trim((string) ($payload['lab'] ?? '')),
             'faculty' => trim((string) ($payload['faculty'] ?? '')),
             'time' => trim((string) ($payload['time'] ?? '')),
+        ];
+    }
+
+    private function mapStudent(Student $student): array
+    {
+        $name = trim(implode(' ', array_filter([
+            $student->first_name,
+            $student->middle_name,
+            $student->last_name,
+        ])));
+
+        return [
+            'id' => (int) $student->student_id,
+            'studentNo' => $student->student_no ?? '',
+            'firstName' => $student->first_name,
+            'middleName' => $student->middle_name ?? '',
+            'lastName' => $student->last_name,
+            'name' => $name,
+            'course' => $student->course ?? '',
+            'year' => $student->year_level ?? '',
+            'yearLevel' => $student->year_level ?? '',
+            'section' => $student->section ?? '',
+            'skills' => $student->skills->pluck('skill_name')->values()->all(),
+            'affiliations' => $student->affiliations->pluck('affiliation_name')->values()->all(),
+            'violations' => $student->violations->pluck('violation_text')->values()->all(),
+            'academicHistory' => $student->academicHistory
+                ->sortByDesc('created_at')
+                ->map(fn ($a) => [
+                    'term' => $a->term,
+                    'gpa' => is_null($a->gpa) ? '' : (float) $a->gpa,
+                    'standing' => $a->standing ?? '',
+                ])->values()->all(),
+            'nonAcademicHistory' => $student->nonAcademicActivities
+                ->sortByDesc('created_at')
+                ->map(fn ($n) => [
+                    'activity' => $n->activity,
+                    'role' => $n->role ?? '',
+                ])->values()->all(),
+        ];
+    }
+
+    private function normalizeStudent(array $payload): array
+    {
+        $yearLevel = trim((string) ($payload['yearLevel'] ?? $payload['year'] ?? ''));
+        $firstName = trim((string) ($payload['firstName'] ?? ''));
+        $lastName = trim((string) ($payload['lastName'] ?? ''));
+        $legacyName = trim((string) ($payload['name'] ?? ''));
+        if (($firstName === '' || $lastName === '') && $legacyName !== '') {
+            $parts = preg_split('/\s+/', $legacyName) ?: [];
+            if ($firstName === '' && ! empty($parts)) {
+                $firstName = (string) array_shift($parts);
+            }
+            if ($lastName === '' && ! empty($parts)) {
+                $lastName = implode(' ', $parts);
+            }
+        }
+
+        $skills = array_values(array_unique(array_filter(array_map(
+            fn ($v) => trim((string) $v),
+            is_array($payload['skills'] ?? null) ? $payload['skills'] : []
+        ))));
+
+        $affiliations = array_values(array_unique(array_filter(array_map(
+            fn ($v) => trim((string) $v),
+            is_array($payload['affiliations'] ?? null) ? $payload['affiliations'] : []
+        ))));
+
+        $violations = array_values(array_filter(array_map(
+            fn ($v) => trim((string) $v),
+            is_array($payload['violations'] ?? null) ? $payload['violations'] : []
+        )));
+
+        $academicHistory = [];
+        foreach (is_array($payload['academicHistory'] ?? null) ? $payload['academicHistory'] : [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $term = trim((string) ($row['term'] ?? ''));
+            if ($term === '') {
+                continue;
+            }
+            $gpaValue = $row['gpa'] ?? null;
+            $gpa = is_numeric($gpaValue) ? round((float) $gpaValue, 2) : null;
+            $academicHistory[] = [
+                'term' => $term,
+                'gpa' => $gpa,
+                'standing' => trim((string) ($row['standing'] ?? '')),
+            ];
+        }
+
+        $nonAcademicHistory = [];
+        foreach (is_array($payload['nonAcademicHistory'] ?? null) ? $payload['nonAcademicHistory'] : [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $activity = trim((string) ($row['activity'] ?? ''));
+            if ($activity === '') {
+                continue;
+            }
+            $nonAcademicHistory[] = [
+                'activity' => $activity,
+                'role' => trim((string) ($row['role'] ?? '')),
+            ];
+        }
+
+        return [
+            'studentNo' => trim((string) ($payload['studentNo'] ?? '')),
+            'firstName' => $firstName,
+            'middleName' => trim((string) ($payload['middleName'] ?? '')),
+            'lastName' => $lastName,
+            'course' => trim((string) ($payload['course'] ?? '')),
+            'yearLevel' => $yearLevel,
+            'section' => trim((string) ($payload['section'] ?? '')),
+            'skills' => $skills,
+            'affiliations' => $affiliations,
+            'violations' => $violations,
+            'academicHistory' => $academicHistory,
+            'nonAcademicHistory' => $nonAcademicHistory,
+        ];
+    }
+
+    private function performStudentUpdate(Student $row, array $rawPayload): JsonResponse
+    {
+        $payload = $this->normalizeStudent($rawPayload);
+        if ($payload['firstName'] === '' || $payload['lastName'] === '') {
+            return response()->json(['message' => 'First name and last name are required.'], 422);
+        }
+
+        if ($payload['studentNo'] !== '') {
+            $exists = Student::query()
+                ->where('student_no', $payload['studentNo'])
+                ->where('student_id', '!=', $row->student_id)
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'Student number already exists.'], 409);
+            }
+        }
+
+        $updated = DB::transaction(function () use ($row, $payload) {
+            $row->update([
+                'student_no' => $payload['studentNo'] !== '' ? $payload['studentNo'] : null,
+                'first_name' => $payload['firstName'],
+                'middle_name' => $payload['middleName'] !== '' ? $payload['middleName'] : null,
+                'last_name' => $payload['lastName'],
+                'course' => $payload['course'] !== '' ? $payload['course'] : null,
+                'year_level' => $payload['yearLevel'] !== '' ? $payload['yearLevel'] : null,
+                'section' => $payload['section'] !== '' ? $payload['section'] : null,
+            ]);
+
+            $this->syncStudentRelations($row, $payload);
+            return $row->fresh(['skills', 'affiliations', 'violations', 'academicHistory', 'nonAcademicActivities']);
+        });
+
+        return response()->json($this->mapStudent($updated));
+    }
+
+    private function syncStudentRelations(Student $student, array $payload): void
+    {
+        $skillIds = [];
+        foreach ($payload['skills'] as $skillName) {
+            $sid = DB::table('skills')->where('skill_name', $skillName)->value('skill_id');
+            if (! $sid) {
+                $sid = DB::table('skills')->insertGetId(['skill_name' => $skillName]);
+            }
+            $skillIds[] = (int) $sid;
+        }
+        $student->skills()->sync($skillIds);
+
+        $affIds = [];
+        foreach ($payload['affiliations'] as $name) {
+            $aid = DB::table('affiliations')->where('affiliation_name', $name)->value('affiliation_id');
+            if (! $aid) {
+                $type = str_contains(strtolower($name), 'sport') ? 'sports' : 'org';
+                $aid = DB::table('affiliations')->insertGetId([
+                    'affiliation_name' => $name,
+                    'affiliation_type' => $type,
+                ]);
+            }
+            $affIds[] = (int) $aid;
+        }
+        $student->affiliations()->sync($affIds);
+
+        DB::table('violations')->where('student_id', $student->student_id)->delete();
+        foreach ($payload['violations'] as $text) {
+            DB::table('violations')->insert([
+                'student_id' => $student->student_id,
+                'violation_text' => $text,
+                'severity' => 'minor',
+                'created_at' => now(),
+            ]);
+        }
+
+        DB::table('academic_history')->where('student_id', $student->student_id)->delete();
+        foreach ($payload['academicHistory'] as $item) {
+            DB::table('academic_history')->insert([
+                'student_id' => $student->student_id,
+                'term' => $item['term'],
+                'gpa' => $item['gpa'],
+                'standing' => $item['standing'] !== '' ? $item['standing'] : null,
+                'created_at' => now(),
+            ]);
+        }
+
+        DB::table('non_academic_activities')->where('student_id', $student->student_id)->delete();
+        foreach ($payload['nonAcademicHistory'] as $item) {
+            DB::table('non_academic_activities')->insert([
+                'student_id' => $student->student_id,
+                'activity' => $item['activity'],
+                'role' => $item['role'] !== '' ? $item['role'] : null,
+                'created_at' => now(),
+            ]);
+        }
+    }
+
+    private function defaultSyllabi(): array
+    {
+        return [
+            ['id' => 'IT-1st Year-1st Sem-CCS101', 'track' => 'IT', 'yearLevel' => '1st Year', 'term' => '1st Sem', 'code' => 'CCS101', 'title' => 'Introduction to Computing'],
+            ['id' => 'IT-1st Year-1st Sem-CCS102', 'track' => 'IT', 'yearLevel' => '1st Year', 'term' => '1st Sem', 'code' => 'CCS102', 'title' => 'Computer Programming 1'],
+            ['id' => 'IT-2nd Year-1st Sem-ITEW1', 'track' => 'IT', 'yearLevel' => '2nd Year', 'term' => '1st Sem', 'code' => 'ITEW1', 'title' => 'Electronic Commerce'],
+            ['id' => 'IT-3rd Year-1st Sem-ITEW3', 'track' => 'IT', 'yearLevel' => '3rd Year', 'term' => '1st Sem', 'code' => 'ITEW3', 'title' => 'Server Side Scripting'],
+            ['id' => 'CS-1st Year-1st Sem-CS101', 'track' => 'CS', 'yearLevel' => '1st Year', 'term' => '1st Sem', 'code' => 'CS101', 'title' => 'Computer Programming 1'],
+            ['id' => 'CS-2nd Year-1st Sem-CS201', 'track' => 'CS', 'yearLevel' => '2nd Year', 'term' => '1st Sem', 'code' => 'CS201', 'title' => 'Object-Oriented Programming'],
+            ['id' => 'CS-3rd Year-1st Sem-CS302', 'track' => 'CS', 'yearLevel' => '3rd Year', 'term' => '1st Sem', 'code' => 'CS302', 'title' => 'Database Systems'],
+            ['id' => 'CS-4th Year-1st Sem-CS401', 'track' => 'CS', 'yearLevel' => '4th Year', 'term' => '1st Sem', 'code' => 'CS401', 'title' => 'Capstone Project 1'],
+        ];
+    }
+
+    private function defaultFaculties(): array
+    {
+        return [
+            [
+                'name' => 'Dr. Maria Smith',
+                'department' => 'Computer Science',
+                'specialization' => 'Algorithms and AI',
+                'syllabusHandled' => ['CS-1st Year-1st Sem-CS101', 'CS-2nd Year-1st Sem-CS201'],
+                'sectionsHandled' => ['CS1A', 'CS2A'],
+            ],
+            [
+                'name' => 'Prof. Jonathan Johnson',
+                'department' => 'Information Technology',
+                'specialization' => 'Web and Mobile Development',
+                'syllabusHandled' => ['IT-2nd Year-1st Sem-ITEW1', 'IT-3rd Year-1st Sem-ITEW3'],
+                'sectionsHandled' => ['IT2A', 'IT3B'],
+            ],
+        ];
+    }
+
+    private function defaultEvents(): array
+    {
+        return [
+            ['name' => 'Basketball Tryouts', 'type' => 'Sports', 'date' => '2026-03-07'],
+            ['name' => 'Programming Contest', 'type' => 'Academic', 'date' => '2026-03-10'],
+            ['name' => 'Coding Workshop', 'type' => 'Academic', 'date' => '2026-03-12'],
+        ];
+    }
+
+    private function defaultSchedules(): array
+    {
+        return [
+            ['course' => 'CS101', 'section' => 'CS2A', 'room' => 'Room 201', 'lab' => 'Lab 3', 'faculty' => 'Dr. Maria Smith', 'time' => 'MWF 9:00-10:00'],
+            ['course' => 'ITEW1', 'section' => 'IT3B', 'room' => 'Room 305', 'lab' => 'Lab 1', 'faculty' => 'Prof. Jonathan Johnson', 'time' => 'TTh 1:00-2:30'],
+        ];
+    }
+
+    private function defaultStudents(): array
+    {
+        return [
+            [
+                'studentNo' => '2026-00001',
+                'firstName' => 'Alice',
+                'middleName' => '',
+                'lastName' => 'Santos',
+                'course' => 'BSCS',
+                'yearLevel' => '2nd Year',
+                'section' => 'CS2A',
+                'skills' => ['programming', 'algorithms'],
+                'affiliations' => ['Association of Computer Science Students'],
+                'violations' => [],
+                'academicHistory' => [['term' => 'AY 2025-2026 1st Sem', 'gpa' => 1.5, 'standing' => "Dean's Lister"]],
+                'nonAcademicHistory' => [['activity' => 'Programming Contest', 'role' => 'Participant']],
+            ],
+            [
+                'studentNo' => '2026-00002',
+                'firstName' => 'Bob',
+                'middleName' => '',
+                'lastName' => 'Reyes',
+                'course' => 'BSIT',
+                'yearLevel' => '3rd Year',
+                'section' => 'IT3B',
+                'skills' => ['web development', 'programming'],
+                'affiliations' => ['Sites'],
+                'violations' => ['Late submission in ITEW3'],
+                'academicHistory' => [['term' => 'AY 2025-2026 1st Sem', 'gpa' => 1.9, 'standing' => 'Good Standing']],
+                'nonAcademicHistory' => [['activity' => 'Hackathon 2026', 'role' => 'Lead Developer']],
+            ],
         ];
     }
 }

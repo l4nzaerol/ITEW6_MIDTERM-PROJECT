@@ -5,6 +5,13 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => response()->json(['ok' => true]));
 
+Route::get('/students', [DomainDataController::class, 'getStudents']);
+Route::post('/students', [DomainDataController::class, 'createStudent']);
+Route::put('/students/{studentNo}', [DomainDataController::class, 'updateStudent']);
+Route::delete('/students/{studentNo}', [DomainDataController::class, 'deleteStudent']);
+Route::put('/students/by-id/{id}', [DomainDataController::class, 'updateStudentById']);
+Route::delete('/students/by-id/{id}', [DomainDataController::class, 'deleteStudentById']);
+
 Route::get('/syllabi', [DomainDataController::class, 'getSyllabi']);
 
 Route::get('/faculties', [DomainDataController::class, 'getFaculties']);
