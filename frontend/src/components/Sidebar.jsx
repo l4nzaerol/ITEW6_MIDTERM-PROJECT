@@ -1,43 +1,60 @@
 import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 
 function Sidebar() {
   const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const active = (path) => (location.pathname === path ? "activeLink" : "");
 
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
   return (
-    <div className="sidebar">
-      <div className="logoSection">
-        <img src="/logo.png" className="logo" alt="Logo" />
-        <div className="logoText">
-          <h2>CCS</h2>
-          <p>PROFILING</p>
+    <>
+      <button
+        type="button"
+        className="mobileSidebarToggle"
+        onClick={() => setMobileOpen(true)}
+        aria-label="Open navigation menu"
+      >
+        ☰ Menu
+      </button>
+      {mobileOpen && <button type="button" className="sidebarBackdrop" onClick={() => setMobileOpen(false)} />}
+      <div className={`sidebar ${mobileOpen ? "sidebarOpen" : ""}`}>
+        <div className="logoSection">
+          <img src="/logo.png" className="logo" alt="Logo" />
+          <div className="logoText">
+            <h2>CCS</h2>
+            <p>PROFILING</p>
+          </div>
+        </div>
+
+        <div className="navMenu">
+          <Link className={active("/dashboard")} to="/dashboard">
+            Dashboard
+          </Link>
+          <Link className={active("/students")} to="/students">
+            Students
+          </Link>
+          <Link className={active("/faculty")} to="/faculty">
+            Faculty
+          </Link>
+          <Link className={active("/instruction")} to="/instruction">
+            Instruction
+          </Link>
+          <Link className={active("/scheduling")} to="/scheduling">
+            Scheduling
+          </Link>
+          <Link className={active("/events")} to="/events">
+            Events
+          </Link>
+          <Link className={active("/reports")} to="/reports">
+            Search & Reports
+          </Link>
         </div>
       </div>
-
-      <div className="navMenu">
-        <Link className={active("/dashboard")} to="/dashboard">
-          Dashboard
-        </Link>
-        <Link className={active("/students")} to="/students">
-          Students
-        </Link>
-        <Link className={active("/faculty")} to="/faculty">
-          Faculty
-        </Link>
-        <Link className={active("/instruction")} to="/instruction">
-          Instruction
-        </Link>
-        <Link className={active("/scheduling")} to="/scheduling">
-          Scheduling
-        </Link>
-        <Link className={active("/events")} to="/events">
-          Events
-        </Link>
-        <Link className={active("/reports")} to="/reports">
-          Search & Reports
-        </Link>
-      </div>
-    </div>
+    </>
   );
 }
 

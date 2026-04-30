@@ -36,7 +36,33 @@
     left:0;
     z-index:100;
     overflow-y:auto;
+    transition:transform 0.22s ease;
   }
+
+.mobileSidebarToggle{
+  display:none;
+  position:fixed;
+  top:14px;
+  left:14px;
+  z-index:2100;
+  border:1px solid #e2e8f0;
+  background:#fff;
+  color:#111827;
+  border-radius:10px;
+  padding:8px 12px;
+  font-size:13px;
+  font-weight:700;
+  box-shadow:0 10px 24px rgba(15,23,42,0.12);
+}
+
+.sidebarBackdrop{
+  display:none;
+  position:fixed;
+  inset:0;
+  border:0;
+  background:rgba(2,6,23,0.5);
+  z-index:1500;
+}
   
   .logoSection{
     display:flex;
@@ -160,6 +186,8 @@
     background:#f6f7fb;
     flex:1;
     width:calc(100% - 220px);
+    max-width:100%;
+    overflow-x:hidden;
   }
   
   /* ----------------- TOPBAR ----------------- */
@@ -1357,23 +1385,46 @@
   .content{
     padding:24px;
   }
+  .cards{
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+  }
+  .dashboardGrid{
+    grid-template-columns:1fr;
+  }
   .dataTable{
     min-width:900px;
   }
 }
 
 @media (max-width: 900px){
-  .sidebar{
-    width:200px;
-  }
   .content{
-    margin-left:200px;
+    margin-left:0;
     padding:18px;
-    width:calc(100% - 200px);
+    width:100%;
+    padding-top:72px;
+  }
+  .mobileSidebarToggle{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+  .sidebar{
+    width:min(280px, 78vw);
+    transform:translateX(-100%);
+    z-index:2000;
+  }
+  .sidebar.sidebarOpen{
+    transform:translateX(0);
+  }
+  .sidebarBackdrop{
+    display:block;
+  }
+  .cards{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
   }
   .studentsSearch{
     width:100%;
-    flex:1 1 320px;
+    flex:1 1 240px;
   }
   .studentsTopRow{
     flex-direction:column;
@@ -1388,19 +1439,25 @@
 }
 
 @media (max-width: 720px){
-  .layout{
-    flex-direction:column;
-  }
-  .sidebar{
-    position:static;
-    width:100%;
-    height:auto;
-    min-height:auto;
-  }
   .content{
-    margin-left:0;
+    margin-left:0 !important;
     padding:16px;
     width:100%;
+    padding-top:70px;
+  }
+  .pageTitle{
+    font-size:22px;
+    margin-bottom:8px;
+  }
+  .cards{
+    grid-template-columns:1fr;
+  }
+  .dashboardGrid{
+    grid-template-columns:1fr;
+    gap:14px;
+  }
+  .dashPanelHeader{
+    flex-wrap:wrap;
   }
   .topbar{
     justify-content:flex-start;
@@ -1416,6 +1473,65 @@
   }
   .dataTable{
     min-width:760px;
+  }
+  .formGrid{
+    grid-template-columns:1fr;
+  }
+  .span2{
+    grid-column:auto;
+  }
+  .modalOverlay{
+    padding:12px;
+  }
+  .modalCard{
+    width:100%;
+    max-height:calc(100vh - 24px);
+    border-radius:12px;
+  }
+  .profileModalTop{
+    flex-direction:column;
+  }
+  .modalActions{
+    justify-content:stretch;
+    flex-wrap:wrap;
+  }
+  .modalActions .primaryBtn,
+  .modalActions .chip{
+    width:100%;
+  }
+  .segmented{
+    width:100%;
+    overflow:auto;
+  }
+}
+
+@media (max-width: 560px){
+  .content{
+    padding:12px;
+    padding-top:68px;
+  }
+  .studentsToolbar{
+    width:100%;
+  }
+  .studentsTopRow .studentsToolbar{
+    justify-content:stretch;
+  }
+  .studentsTopRow .studentsToolbar .chip,
+  .studentsTopRow .studentsToolbar .searchBar{
+    width:100%;
+  }
+  .filtersRow{
+    gap:10px;
+  }
+  .filterField{
+    min-width:100%;
+  }
+  .userMenuWrap{
+    top:12px;
+    right:12px;
+  }
+  .userMenuName{
+    display:none;
   }
 }
 
