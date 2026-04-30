@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 
+const CREDENTIALS_KEY = "ccs_admin_credentials";
+
 function getApiCandidates() {
   return [
     "http://127.0.0.1:8000",
@@ -42,13 +44,50 @@ async function requestAuth(path, options) {
   );
 }
 
+function readStoredCredentials() {
+  try {
+    const raw = localStorage.getItem(CREDENTIALS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.username || !parsed?.password) return null;
+    return {
+      username: String(parsed.username),
+      password: String(parsed.password),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistCredentials(username, password) {
+  localStorage.setItem(
+    CREDENTIALS_KEY,
+    JSON.stringify({
+      username: String(username || "").trim(),
+      password: String(password || ""),
+    })
+  );
+}
+
+function authenticateLocally(username) {
+  localStorage.setItem("ccs_isAuthenticated", "true");
+  localStorage.setItem(
+    "ccs_user",
+    JSON.stringify({
+      username: String(username || "").trim() || "admin",
+      source: "local-storage",
+    })
+  );
+}
+
 function Login() {
   const nav = useNavigate();
 
   const [isRegister, setIsRegister] = useState(false);
-  const [user, setUser] = useState("");
+  const storedCredentials = readStoredCredentials();
+  const [user, setUser] = useState(storedCredentials?.username || "");
   const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
+  const [pass, setPass] = useState(storedCredentials?.password || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -57,14 +96,19 @@ function Login() {
     setError("");
     setSaving(true);
     try {
+      const normalizedUser = String(user || "").trim();
+      const enteredPassword = String(pass || "");
+
       if (isRegister) {
+        persistCredentials(normalizedUser, enteredPassword);
+
         const registerRes = await requestAuth("/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            username: String(user || "").trim(),
+            username: normalizedUser,
             email: String(email || "").trim(),
-            password: pass,
+            password: enteredPassword,
           }),
         });
         if (!registerRes.ok) {
@@ -79,12 +123,23 @@ function Login() {
         }
       }
 
+      const localCredentials = readStoredCredentials();
+      if (
+        localCredentials &&
+        localCredentials.username === normalizedUser &&
+        localCredentials.password === enteredPassword
+      ) {
+        authenticateLocally(normalizedUser);
+        nav("/dashboard");
+        return;
+      }
+
       const loginRes = await requestAuth("/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          login: String(user || "").trim(),
-          password: pass,
+          login: normalizedUser,
+          password: enteredPassword,
         }),
       });
       if (!loginRes.ok) {
@@ -98,11 +153,28 @@ function Login() {
         throw new Error(message);
       }
       const authUser = await loginRes.json();
+      persistCredentials(normalizedUser, enteredPassword);
       localStorage.setItem("ccs_isAuthenticated", "true");
       localStorage.setItem("ccs_user", JSON.stringify(authUser));
       nav("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed.");
+      const localCredentials = readStoredCredentials();
+      const normalizedUser = String(user || "").trim();
+      const enteredPassword = String(pass || "");
+      if (
+        localCredentials &&
+        localCredentials.username === normalizedUser &&
+        localCredentials.password === enteredPassword
+      ) {
+        authenticateLocally(normalizedUser);
+        nav("/dashboard");
+        return;
+      }
+      setError(
+        err instanceof Error
+          ? `${err.message} (Tip: register once to save local admin credentials for Vercel frontend-only login.)`
+          : "Authentication failed."
+      );
     } finally {
       setSaving(false);
     }
