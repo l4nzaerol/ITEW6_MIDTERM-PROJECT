@@ -3,10 +3,10 @@ import { useState } from "react";
 
 function getApiCandidates() {
   return [
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000/api",
-    "http://localhost:8000/api",
+    "https://itew6-midterm-project.onrender.com",
+    "https://itew6-midterm-project.onrender.com",
+    "https://itew6-midterm-project.onrender.com/api",
+    "https://itew6-midterm-project.onrender.com/api",
   ];
 }
 
