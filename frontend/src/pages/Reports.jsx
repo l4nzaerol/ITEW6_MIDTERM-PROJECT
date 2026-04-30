@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import { useStudents } from "../context/StudentsContext";
 import { useEvents } from "../context/EventsContext";
@@ -97,7 +97,18 @@ function Reports() {
   const [schedSection, setSchedSection] = useState("all");
   const [schedFaculty, setSchedFaculty] = useState("all");
 
-  const schedules = useMemo(() => readSchedules(), []);
+  const [schedulesVersion, setSchedulesVersion] = useState(0);
+  const schedules = useMemo(() => readSchedules(), [schedulesVersion]);
+
+  useEffect(() => {
+    const onSchedulesUpdated = () => setSchedulesVersion((v) => v + 1);
+    window.addEventListener("storage", onSchedulesUpdated);
+    window.addEventListener("ccs_schedules_updated", onSchedulesUpdated);
+    return () => {
+      window.removeEventListener("storage", onSchedulesUpdated);
+      window.removeEventListener("ccs_schedules_updated", onSchedulesUpdated);
+    };
+  }, []);
 
   const courseOptions = useMemo(() => {
     const set = new Set();

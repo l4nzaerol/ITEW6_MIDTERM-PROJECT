@@ -3,6 +3,9 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 const StudentsContext = createContext(null);
 
 const ENV_API_URL = import.meta.env.VITE_API_URL || "";
+const STUDENTS_STORAGE_KEY = "ccs_students_data_v1";
+const SEEDED_FLAG_KEY = "ccs_students_seeded_v1";
+const TOTAL_SEEDED_STUDENTS = 1200;
 
 function getApiCandidates() {
   const host =
@@ -27,11 +30,130 @@ function getApiCandidates() {
   );
 }
 
+function createSeedStudent(index) {
+  const id = index + 1;
+  const course = index % 2 === 0 ? "BSIT" : "BSCS";
+  const yearLevel = `${(index % 4) + 1}${(index % 10 === 0 || index % 10 > 3) ? "th" : index % 10 === 1 ? "st" : index % 10 === 2 ? "nd" : "rd"} Year`;
+  const sectionPrefix = course === "BSIT" ? "IT" : "CS";
+  const section = `${sectionPrefix}${(index % 4) + 1}${String.fromCharCode(65 + (index % 5))}`;
+  const firstName = `Student${String(index + 1).padStart(4, "0")}`;
+  const lastName = `CCS${String((index % 300) + 1).padStart(3, "0")}`;
+  const name = `${firstName} ${lastName}`;
+  const hasViolation = index % 7 === 0;
+  const skills = index % 3 === 0 ? ["programming", "leadership"] : ["basketball", "teamwork"];
+  const affiliations = index % 2 === 0 ? ["Sites"] : ["Association of Computer Science Students"];
+  return {
+    id,
+    studentNo: `2026-${String(id).padStart(4, "0")}`,
+    firstName,
+    middleName: "",
+    lastName,
+    name,
+    course,
+    yearLevel,
+    year: yearLevel,
+    section,
+    skills,
+    affiliations,
+    violations: hasViolation ? ["Late submission"] : [],
+    academicHistory: [
+      {
+        term: "2025-2026 1st Sem",
+        gpa: Number((1.5 + (index % 20) * 0.05).toFixed(2)),
+        standing: "Regular",
+      },
+    ],
+    nonAcademicHistory: [
+      {
+        activity: index % 2 === 0 ? "Hackathon" : "Department Event",
+        role: index % 2 === 0 ? "Participant" : "Volunteer",
+      },
+    ],
+  };
+}
+
+function generateSeedStudents(total = TOTAL_SEEDED_STUDENTS) {
+  return Array.from({ length: total }, (_, i) => createSeedStudent(i));
+}
+
+function readLocalStudents() {
+  try {
+    const raw = localStorage.getItem(STUDENTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalStudents(list) {
+  localStorage.setItem(STUDENTS_STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+function ensureSeededStudents() {
+  const seeded = localStorage.getItem(SEEDED_FLAG_KEY) === "true";
+  const existing = readLocalStudents();
+  if (!seeded || existing.length < TOTAL_SEEDED_STUDENTS) {
+    const generated = generateSeedStudents();
+    writeLocalStudents(generated);
+    localStorage.setItem(SEEDED_FLAG_KEY, "true");
+    return generated;
+  }
+  return existing;
+}
+
+function normalizeStudentForLocal(student, fallbackId) {
+  const firstName = String(student?.firstName || "").trim();
+  const lastName = String(student?.lastName || "").trim();
+  const name =
+    String(student?.name || "").trim() || `${firstName} ${lastName}`.trim() || "Unnamed Student";
+  const year = String(student?.yearLevel || student?.year || "").trim();
+  return {
+    ...student,
+    id: student?.id ?? fallbackId,
+    studentNo: String(student?.studentNo || "").trim(),
+    firstName,
+    middleName: String(student?.middleName || "").trim(),
+    lastName,
+    name,
+    course: String(student?.course || "").trim(),
+    yearLevel: year,
+    year,
+    section: String(student?.section || "").trim(),
+    skills: Array.isArray(student?.skills) ? student.skills : [],
+    affiliations: Array.isArray(student?.affiliations) ? student.affiliations : [],
+    violations: Array.isArray(student?.violations) ? student.violations : [],
+    academicHistory: Array.isArray(student?.academicHistory) ? student.academicHistory : [],
+    nonAcademicHistory: Array.isArray(student?.nonAcademicHistory) ? student.nonAcademicHistory : [],
+  };
+}
+
+function applyLocalFilters(list, params) {
+  if (!params) return list;
+  return list.filter((s) =>
+    Object.entries(params).every(([k, v]) => {
+      if (v === undefined || v === null || v === "") return true;
+      const value = String(v).toLowerCase();
+      if (k === "q") {
+        return (
+          String(s?.name || "").toLowerCase().includes(value) ||
+          String(s?.studentNo || "").toLowerCase().includes(value) ||
+          String(s?.course || "").toLowerCase().includes(value) ||
+          String(s?.section || "").toLowerCase().includes(value)
+        );
+      }
+      return String(s?.[k] || "").toLowerCase() === value;
+    })
+  );
+}
+
 export function StudentsProvider({ children }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
+  const [isOffline, setIsOffline] = useState(false);
 
   const requestWithFallback = async (path, options = {}) => {
     const candidates = [apiBase, ...getApiCandidates()].filter(
@@ -89,9 +211,18 @@ export function StudentsProvider({ children }) {
         const list = await res.json();
         const arr = Array.isArray(list) ? list : [];
         setStudents(arr);
+        writeLocalStudents(arr);
+        localStorage.setItem(SEEDED_FLAG_KEY, "true");
+        setIsOffline(false);
       } catch (e) {
-        setStudents([]);
-        setError(e instanceof Error ? e.message : "Failed to load students");
+        const seeded = ensureSeededStudents();
+        setStudents(seeded);
+        setIsOffline(true);
+        setError(
+          e instanceof Error
+            ? `${e.message} Showing local student dataset instead.`
+            : "Using local student dataset."
+        );
       } finally {
         setLoading(false);
       }
@@ -101,149 +232,229 @@ export function StudentsProvider({ children }) {
 
   const api = useMemo(() => {
     const refresh = async (params) => {
-      const url = new URL(`${apiBase}/students`);
-      if (params) {
-        Object.entries(params).forEach(([k, v]) => {
-          if (v === undefined || v === null || v === "") return;
-          url.searchParams.set(k, String(v));
-        });
+      if (isOffline) {
+        const local = ensureSeededStudents();
+        setStudents(applyLocalFilters(local, params));
+        return;
       }
-      const res = await requestWithFallback(`/students?${url.searchParams.toString()}`);
-      if (!res.ok) throw new Error("Failed to load students");
-      const list = await res.json();
-      setStudents(Array.isArray(list) ? list : []);
+      try {
+        const url = new URL(`${apiBase}/students`);
+        if (params) {
+          Object.entries(params).forEach(([k, v]) => {
+            if (v === undefined || v === null || v === "") return;
+            url.searchParams.set(k, String(v));
+          });
+        }
+        const res = await requestWithFallback(`/students?${url.searchParams.toString()}`);
+        if (!res.ok) throw new Error("Failed to load students");
+        const list = await res.json();
+        const normalized = Array.isArray(list) ? list : [];
+        setStudents(normalized);
+        writeLocalStudents(normalized);
+      } catch {
+        const local = ensureSeededStudents();
+        setStudents(applyLocalFilters(local, params));
+        setIsOffline(true);
+      }
     };
 
     const addStudent = async (student) => {
-      const res = await requestWithFallback("/students", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(student),
-      });
-      if (!res.ok) {
-        let message = `Failed to add student (HTTP ${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          try {
-            const text = await res.text();
-            if (text) message = `${message}: ${text.slice(0, 200)}`;
-          } catch {
-            // ignore
-          }
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = ensureSeededStudents();
+        const maxId = local.reduce((acc, item) => Math.max(acc, Number(item?.id) || 0), 0);
+        const newStudent = normalizeStudentForLocal(student, maxId + 1);
+        const updated = [newStudent, ...local];
+        writeLocalStudents(updated);
+        setStudents(updated);
+        return;
       }
-      // Re-fetch to guarantee consistent fields (e.g. studentNo)
-      await res.json();
-      await refresh();
+      try {
+        const res = await requestWithFallback("/students", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(student),
+        });
+        if (!res.ok) {
+          let message = `Failed to add student (HTTP ${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            try {
+              const text = await res.text();
+              if (text) message = `${message}: ${text.slice(0, 200)}`;
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error(message);
+        }
+        await res.json();
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await addStudent(student);
+      }
     };
 
     const updateStudent = async (studentNo, updates) => {
-      const res = await requestWithFallback(`/students/${encodeURIComponent(studentNo)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        let message = `Failed to update student (HTTP ${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          try {
-            const text = await res.text();
-            if (text) message = `${message}: ${text.slice(0, 200)}`;
-          } catch {
-            // ignore
-          }
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = ensureSeededStudents();
+        const updatedList = local.map((item) =>
+          String(item?.studentNo || "") === String(studentNo || "")
+            ? normalizeStudentForLocal({ ...item, ...updates }, item?.id)
+            : item
+        );
+        writeLocalStudents(updatedList);
+        setStudents(updatedList);
+        return updatedList.find((s) => String(s?.studentNo || "") === String(updates?.studentNo || studentNo));
       }
-      const updated = await res.json();
-      setStudents((prev) => prev.map((s) => (s.studentNo === studentNo ? updated : s)));
-      // Re-fetch to avoid edge cases when studentNo changes or ids are missing.
-      await refresh();
-      return updated;
+      try {
+        const res = await requestWithFallback(`/students/${encodeURIComponent(studentNo)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        if (!res.ok) {
+          let message = `Failed to update student (HTTP ${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            try {
+              const text = await res.text();
+              if (text) message = `${message}: ${text.slice(0, 200)}`;
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error(message);
+        }
+        const updated = await res.json();
+        setStudents((prev) => prev.map((s) => (s.studentNo === studentNo ? updated : s)));
+        await refresh();
+        return updated;
+      } catch {
+        setIsOffline(true);
+        return updateStudent(studentNo, updates);
+      }
     };
 
     const updateStudentById = async (studentId, updates) => {
-      const res = await requestWithFallback(`/students/by-id/${encodeURIComponent(String(studentId))}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        let message = `Failed to update student (HTTP ${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          try {
-            const text = await res.text();
-            if (text) message = `${message}: ${text.slice(0, 200)}`;
-          } catch {
-            // ignore
-          }
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = ensureSeededStudents();
+        const updatedList = local.map((item) =>
+          String(item?.id) === String(studentId)
+            ? normalizeStudentForLocal({ ...item, ...updates }, item?.id)
+            : item
+        );
+        writeLocalStudents(updatedList);
+        setStudents(updatedList);
+        return updatedList.find((s) => String(s?.id) === String(studentId)) || null;
       }
-      const updated = await res.json();
-      setStudents((prev) =>
-        prev.map((s) =>
-          String(s.id) === String(studentId) ? updated : s
-        )
-      );
-      await refresh();
-      return updated;
+      try {
+        const res = await requestWithFallback(`/students/by-id/${encodeURIComponent(String(studentId))}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        if (!res.ok) {
+          let message = `Failed to update student (HTTP ${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            try {
+              const text = await res.text();
+              if (text) message = `${message}: ${text.slice(0, 200)}`;
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error(message);
+        }
+        const updated = await res.json();
+        setStudents((prev) =>
+          prev.map((s) =>
+            String(s.id) === String(studentId) ? updated : s
+          )
+        );
+        await refresh();
+        return updated;
+      } catch {
+        setIsOffline(true);
+        return updateStudentById(studentId, updates);
+      }
     };
 
     const deleteStudent = async (studentNo) => {
-      const res = await requestWithFallback(`/students/${encodeURIComponent(studentNo)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) {
-        let message = `Failed to delete student (HTTP ${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          try {
-            const text = await res.text();
-            if (text) message = `${message}: ${text.slice(0, 200)}`;
-          } catch {
-            // ignore
-          }
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = ensureSeededStudents();
+        const updated = local.filter((s) => String(s?.studentNo || "") !== String(studentNo || ""));
+        writeLocalStudents(updated);
+        setStudents(updated);
+        return;
       }
-      setStudents((prev) => prev.filter((s) => s.studentNo !== studentNo));
-      // Re-fetch to ensure database and UI are in sync
-      await refresh();
+      try {
+        const res = await requestWithFallback(`/students/${encodeURIComponent(studentNo)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok && res.status !== 204) {
+          let message = `Failed to delete student (HTTP ${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            try {
+              const text = await res.text();
+              if (text) message = `${message}: ${text.slice(0, 200)}`;
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error(message);
+        }
+        setStudents((prev) => prev.filter((s) => s.studentNo !== studentNo));
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await deleteStudent(studentNo);
+      }
     };
 
     const deleteStudentById = async (studentId) => {
-      const res = await requestWithFallback(`/students/by-id/${encodeURIComponent(String(studentId))}`, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) {
-        let message = `Failed to delete student (HTTP ${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          try {
-            const text = await res.text();
-            if (text) message = `${message}: ${text.slice(0, 200)}`;
-          } catch {
-            // ignore
-          }
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = ensureSeededStudents();
+        const updated = local.filter((s) => String(s?.id) !== String(studentId));
+        writeLocalStudents(updated);
+        setStudents(updated);
+        return;
       }
-      setStudents((prev) => prev.filter((s) => String(s.id) !== String(studentId)));
-      await refresh();
+      try {
+        const res = await requestWithFallback(`/students/by-id/${encodeURIComponent(String(studentId))}`, {
+          method: "DELETE",
+        });
+        if (!res.ok && res.status !== 204) {
+          let message = `Failed to delete student (HTTP ${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            try {
+              const text = await res.text();
+              if (text) message = `${message}: ${text.slice(0, 200)}`;
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error(message);
+        }
+        setStudents((prev) => prev.filter((s) => String(s.id) !== String(studentId)));
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await deleteStudentById(studentId);
+      }
     };
 
     const getStudentByNo = (studentNo) =>
@@ -261,8 +472,9 @@ export function StudentsProvider({ children }) {
       deleteStudentById,
       getStudentByNo,
       apiUrl: apiBase,
+      isOffline,
     };
-  }, [students, loading, error, apiBase]);
+  }, [students, loading, error, apiBase, isOffline]);
 
   return (
     <StudentsContext.Provider value={api}>{children}</StudentsContext.Provider>

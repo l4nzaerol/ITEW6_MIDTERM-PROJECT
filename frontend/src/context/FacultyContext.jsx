@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const FacultyContext = createContext(null);
 const ENV_API_URL = import.meta.env.VITE_API_URL || "";
+const FACULTY_STORAGE_KEY = "ccs_faculty_data_v1";
 
 export const CURRICULUM = {
   IT: {
@@ -235,9 +236,24 @@ function getApiCandidates() {
   );
 }
 
+function readLocalFaculty() {
+  try {
+    const raw = localStorage.getItem(FACULTY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed.map(normalizeFaculty) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalFaculty(list) {
+  localStorage.setItem(FACULTY_STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
 export function FacultyProvider({ children }) {
   const [faculties, setFaculties] = useState([]);
   const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
+  const [isOffline, setIsOffline] = useState(false);
 
   const requestWithFallback = async (path, options) => {
     const candidates = [apiBase, ...getApiCandidates()].filter((v, i, a) => v && a.indexOf(v) === i);
@@ -285,7 +301,10 @@ export function FacultyProvider({ children }) {
         if (!res.ok) throw new Error("Failed to load faculties");
         const rows = await res.json();
         if (Array.isArray(rows) && rows.length) {
-          setFaculties(rows.map(normalizeFaculty));
+          const normalized = rows.map(normalizeFaculty);
+          setFaculties(normalized);
+          writeLocalFaculty(normalized);
+          setIsOffline(false);
           return;
         }
         const defaults = initialFaculty();
@@ -297,9 +316,16 @@ export function FacultyProvider({ children }) {
         const refresh = await requestWithFallback("/faculties");
         if (!refresh.ok) throw new Error("Failed to load faculties");
         const list = await refresh.json();
-        setFaculties(Array.isArray(list) ? list.map(normalizeFaculty) : []);
+        const normalized = Array.isArray(list) ? list.map(normalizeFaculty) : [];
+        setFaculties(normalized);
+        writeLocalFaculty(normalized);
+        setIsOffline(false);
       } catch {
-        setFaculties(initialFaculty());
+        const local = readLocalFaculty();
+        const fallback = local.length ? local : initialFaculty();
+        setFaculties(fallback);
+        writeLocalFaculty(fallback);
+        setIsOffline(true);
       }
     };
     load();
@@ -307,73 +333,122 @@ export function FacultyProvider({ children }) {
 
   const api = useMemo(() => {
     const refresh = async () => {
-      const res = await requestWithFallback("/faculties");
-      if (!res.ok) throw new Error("Failed to load faculties");
-      const rows = await res.json();
-      setFaculties(Array.isArray(rows) ? rows.map(normalizeFaculty) : []);
+      if (isOffline) {
+        setFaculties(readLocalFaculty());
+        return;
+      }
+      try {
+        const res = await requestWithFallback("/faculties");
+        if (!res.ok) throw new Error("Failed to load faculties");
+        const rows = await res.json();
+        const normalized = Array.isArray(rows) ? rows.map(normalizeFaculty) : [];
+        setFaculties(normalized);
+        writeLocalFaculty(normalized);
+      } catch {
+        setIsOffline(true);
+        setFaculties(readLocalFaculty());
+      }
     };
 
     const addFaculty = async (payload) => {
-      const res = await requestWithFallback("/faculties", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        let message = "Failed to add faculty";
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = readLocalFaculty();
+        const maxId = local.reduce((acc, f) => Math.max(acc, Number(f?.id) || 0), 0);
+        const next = normalizeFaculty({ ...payload, id: maxId + 1 });
+        const updated = [next, ...local];
+        setFaculties(updated);
+        writeLocalFaculty(updated);
+        return next;
       }
-      const next = await res.json();
-      await refresh();
-      return next;
+      try {
+        const res = await requestWithFallback("/faculties", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          let message = "Failed to add faculty";
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        const next = await res.json();
+        await refresh();
+        return next;
+      } catch {
+        setIsOffline(true);
+        return addFaculty(payload);
+      }
     };
 
     const updateFaculty = async (id, updates) => {
       const existing = faculties.find((f) => String(f.id) === String(id));
       const payload = normalizeFaculty({ ...(existing || {}), ...updates, id });
-      const res = await requestWithFallback(`/faculties/${encodeURIComponent(String(id))}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        let message = "Failed to update faculty";
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = readLocalFaculty();
+        const updated = local.map((f) => (String(f.id) === String(id) ? payload : f));
+        setFaculties(updated);
+        writeLocalFaculty(updated);
+        return;
       }
-      await refresh();
+      try {
+        const res = await requestWithFallback(`/faculties/${encodeURIComponent(String(id))}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          let message = "Failed to update faculty";
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await updateFaculty(id, updates);
+      }
     };
 
     const removeFaculty = async (id) => {
-      const res = await requestWithFallback(`/faculties/${encodeURIComponent(String(id))}`, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) {
-        let message = "Failed to delete faculty";
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = readLocalFaculty();
+        const updated = local.filter((f) => String(f.id) !== String(id));
+        setFaculties(updated);
+        writeLocalFaculty(updated);
+        return;
       }
-      await refresh();
+      try {
+        const res = await requestWithFallback(`/faculties/${encodeURIComponent(String(id))}`, {
+          method: "DELETE",
+        });
+        if (!res.ok && res.status !== 204) {
+          let message = "Failed to delete faculty";
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await removeFaculty(id);
+      }
     };
 
-    return { faculties, addFaculty, updateFaculty, removeFaculty, refresh, apiUrl: apiBase };
-  }, [faculties, apiBase]);
+    return { faculties, addFaculty, updateFaculty, removeFaculty, refresh, apiUrl: apiBase, isOffline };
+  }, [faculties, apiBase, isOffline]);
 
   return <FacultyContext.Provider value={api}>{children}</FacultyContext.Provider>;
 }

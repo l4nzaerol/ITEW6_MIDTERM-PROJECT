@@ -3,6 +3,7 @@ import data from "../data/mockData";
 
 const EventsContext = createContext(null);
 const ENV_API_URL = import.meta.env.VITE_API_URL || "";
+const EVENTS_STORAGE_KEY = "ccs_events_data_v1";
 
 function normalizeEvent(e) {
   return {
@@ -43,9 +44,24 @@ function getApiCandidates() {
   );
 }
 
+function readLocalEvents() {
+  try {
+    const raw = localStorage.getItem(EVENTS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed.map(normalizeEvent) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalEvents(list) {
+  localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
 export function EventsProvider({ children }) {
   const [events, setEvents] = useState([]);
   const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
+  const [isOffline, setIsOffline] = useState(false);
 
   const requestWithFallback = async (path, options) => {
     const candidates = [apiBase, ...getApiCandidates()].filter((v, i, a) => v && a.indexOf(v) === i);
@@ -93,7 +109,10 @@ export function EventsProvider({ children }) {
         if (!res.ok) throw new Error("Failed to load events");
         const list = await res.json();
         if (Array.isArray(list) && list.length) {
-          setEvents(list.map(normalizeEvent));
+          const normalized = list.map(normalizeEvent);
+          setEvents(normalized);
+          writeLocalEvents(normalized);
+          setIsOffline(false);
           return;
         }
         const defaults = readInitialEvents();
@@ -105,9 +124,16 @@ export function EventsProvider({ children }) {
         const refresh = await requestWithFallback("/events");
         if (!refresh.ok) throw new Error("Failed to load events");
         const rows = await refresh.json();
-        setEvents(Array.isArray(rows) ? rows.map(normalizeEvent) : []);
+        const normalized = Array.isArray(rows) ? rows.map(normalizeEvent) : [];
+        setEvents(normalized);
+        writeLocalEvents(normalized);
+        setIsOffline(false);
       } catch {
-        setEvents(readInitialEvents());
+        const local = readLocalEvents();
+        const fallback = local.length ? local : readInitialEvents();
+        setEvents(fallback);
+        writeLocalEvents(fallback);
+        setIsOffline(true);
       }
     };
     load();
@@ -115,74 +141,127 @@ export function EventsProvider({ children }) {
 
   const api = useMemo(() => {
     const refresh = async () => {
-      const res = await requestWithFallback("/events");
-      if (!res.ok) throw new Error("Failed to load events");
-      const rows = await res.json();
-      setEvents(Array.isArray(rows) ? rows.map(normalizeEvent) : []);
+      if (isOffline) {
+        setEvents(readLocalEvents());
+        return;
+      }
+      try {
+        const res = await requestWithFallback("/events");
+        if (!res.ok) throw new Error("Failed to load events");
+        const rows = await res.json();
+        const normalized = Array.isArray(rows) ? rows.map(normalizeEvent) : [];
+        setEvents(normalized);
+        writeLocalEvents(normalized);
+      } catch {
+        setIsOffline(true);
+        setEvents(readLocalEvents());
+      }
     };
 
     const addEvent = async (payload) => {
-      const res = await requestWithFallback("/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        let message = "Failed to add event";
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = readLocalEvents();
+        const maxId = local.reduce((acc, e) => Math.max(acc, Number(e?.id) || 0), 0);
+        const next = normalizeEvent({ ...payload, id: maxId + 1 });
+        const updated = [next, ...local];
+        setEvents(updated);
+        writeLocalEvents(updated);
+        return;
       }
-      await refresh();
+      try {
+        const res = await requestWithFallback("/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          let message = "Failed to add event";
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await addEvent(payload);
+      }
     };
 
     const updateEvent = async (id, updates) => {
-      const res = await requestWithFallback(`/events/${encodeURIComponent(String(id))}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        let message = "Failed to update event";
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = readLocalEvents();
+        const updated = local.map((e) =>
+          String(e.id) === String(id) ? normalizeEvent({ ...e, ...updates, id }) : e
+        );
+        setEvents(updated);
+        writeLocalEvents(updated);
+        return;
       }
-      await refresh();
+      try {
+        const res = await requestWithFallback(`/events/${encodeURIComponent(String(id))}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        if (!res.ok) {
+          let message = "Failed to update event";
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await updateEvent(id, updates);
+      }
     };
 
     const deleteEvent = async (id) => {
-      const res = await requestWithFallback(`/events/${encodeURIComponent(String(id))}`, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) {
-        let message = "Failed to delete event";
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
+      if (isOffline) {
+        const local = readLocalEvents();
+        const updated = local.filter((e) => String(e.id) !== String(id));
+        setEvents(updated);
+        writeLocalEvents(updated);
+        return;
       }
-      await refresh();
+      try {
+        const res = await requestWithFallback(`/events/${encodeURIComponent(String(id))}`, {
+          method: "DELETE",
+        });
+        if (!res.ok && res.status !== 204) {
+          let message = "Failed to delete event";
+          try {
+            const body = await res.json();
+            if (body?.message) message = body.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        await refresh();
+      } catch {
+        setIsOffline(true);
+        await deleteEvent(id);
+      }
     };
 
     const resetEvents = async () => {
       // Keep reset as functional fallback when backend is unreachable.
-      setEvents((data.events || []).map(normalizeEvent));
+      const defaults = (data.events || []).map(normalizeEvent);
+      setEvents(defaults);
+      writeLocalEvents(defaults);
     };
 
-    return { events, addEvent, updateEvent, deleteEvent, resetEvents, refresh, apiUrl: apiBase };
-  }, [events, apiBase]);
+    return { events, addEvent, updateEvent, deleteEvent, resetEvents, refresh, apiUrl: apiBase, isOffline };
+  }, [events, apiBase, isOffline]);
 
   return <EventsContext.Provider value={api}>{children}</EventsContext.Provider>;
 }

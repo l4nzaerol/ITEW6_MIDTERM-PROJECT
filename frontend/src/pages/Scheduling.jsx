@@ -4,6 +4,7 @@ import Modal from "../components/Modal";
 import { SECTION_OPTIONS, useFaculty } from "../context/FacultyContext";
 
 const ENV_API_URL = import.meta.env.VITE_API_URL || "";
+const SCHEDULES_STORAGE_KEY = "ccs_schedules_v1";
 
 const DEFAULT_SCHEDULES = [
   {
@@ -52,12 +53,28 @@ function getApiCandidates() {
   );
 }
 
+function readLocalSchedules() {
+  try {
+    const raw = localStorage.getItem(SCHEDULES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalSchedules(list) {
+  localStorage.setItem(SCHEDULES_STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+  window.dispatchEvent(new Event("ccs_schedules_updated"));
+}
+
 function Scheduling() {
   const { faculties } = useFaculty();
   const [schedules, setSchedules] = useState([]);
   const [showEditor, setShowEditor] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [apiBase, setApiBase] = useState(() => getApiCandidates()[0]);
+  const [isOffline, setIsOffline] = useState(false);
   const [form, setForm] = useState({
     course: "",
     section: "IT1A",
@@ -140,10 +157,23 @@ function Scheduling() {
   };
 
   const refreshSchedules = async () => {
-    const res = await requestWithFallback("/schedules");
-    if (!res.ok) throw new Error("Failed to load schedules");
-    const rows = await res.json();
-    setSchedules(Array.isArray(rows) ? rows : []);
+    if (isOffline) {
+      const local = readLocalSchedules();
+      setSchedules(local.length ? local : DEFAULT_SCHEDULES);
+      return;
+    }
+    try {
+      const res = await requestWithFallback("/schedules");
+      if (!res.ok) throw new Error("Failed to load schedules");
+      const rows = await res.json();
+      const list = Array.isArray(rows) ? rows : [];
+      setSchedules(list);
+      writeLocalSchedules(list);
+    } catch {
+      setIsOffline(true);
+      const local = readLocalSchedules();
+      setSchedules(local.length ? local : DEFAULT_SCHEDULES);
+    }
   };
 
   useEffect(() => {
@@ -154,6 +184,8 @@ function Scheduling() {
         const rows = await res.json();
         const list = Array.isArray(rows) ? rows : [];
         setSchedules(list);
+        writeLocalSchedules(list);
+        setIsOffline(false);
         if (list.length === 0) {
           await requestWithFallback("/bootstrap/frontend-dummy", {
             method: "POST",
@@ -163,7 +195,11 @@ function Scheduling() {
           await refreshSchedules();
         }
       } catch {
-        setSchedules(DEFAULT_SCHEDULES);
+        const local = readLocalSchedules();
+        const fallback = local.length ? local : DEFAULT_SCHEDULES;
+        setSchedules(fallback);
+        writeLocalSchedules(fallback);
+        setIsOffline(true);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -198,26 +234,63 @@ function Scheduling() {
   const onSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingId !== null) {
-        const res = await requestWithFallback(`/schedules/${encodeURIComponent(String(editingId))}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
-        if (!res.ok) throw new Error("Failed to update schedule");
+      if (isOffline) {
+        const local = readLocalSchedules();
+        if (editingId !== null) {
+          const updated = local.map((s) =>
+            String(s.id) === String(editingId) ? { ...s, ...form, id: s.id } : s
+          );
+          writeLocalSchedules(updated);
+          setSchedules(updated);
+        } else {
+          const maxId = local.reduce((acc, s) => Math.max(acc, Number(s?.id) || 0), 0);
+          const next = { ...form, id: maxId + 1 };
+          const updated = [next, ...local];
+          writeLocalSchedules(updated);
+          setSchedules(updated);
+        }
       } else {
-        const res = await requestWithFallback("/schedules", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
-        if (!res.ok) throw new Error("Failed to add schedule");
+        if (editingId !== null) {
+          const res = await requestWithFallback(`/schedules/${encodeURIComponent(String(editingId))}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(form),
+          });
+          if (!res.ok) throw new Error("Failed to update schedule");
+        } else {
+          const res = await requestWithFallback("/schedules", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(form),
+          });
+          if (!res.ok) throw new Error("Failed to add schedule");
+        }
+        await refreshSchedules();
       }
-      await refreshSchedules();
       setShowEditor(false);
       setEditingId(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save schedule");
+      setIsOffline(true);
+      try {
+        const local = readLocalSchedules();
+        if (editingId !== null) {
+          const updated = local.map((s) =>
+            String(s.id) === String(editingId) ? { ...s, ...form, id: s.id } : s
+          );
+          writeLocalSchedules(updated);
+          setSchedules(updated);
+        } else {
+          const maxId = local.reduce((acc, s) => Math.max(acc, Number(s?.id) || 0), 0);
+          const next = { ...form, id: maxId + 1 };
+          const updated = [next, ...local];
+          writeLocalSchedules(updated);
+          setSchedules(updated);
+        }
+        setShowEditor(false);
+        setEditingId(null);
+      } catch {
+        alert(e instanceof Error ? e.message : "Failed to save schedule");
+      }
     }
   };
 
@@ -276,15 +349,30 @@ function Scheduling() {
                           onClick={async () => {
                             const ok = window.confirm("Delete this schedule?");
                             if (!ok) return;
-                            const res = await requestWithFallback(
-                              `/schedules/${encodeURIComponent(String(s.id))}`,
-                              { method: "DELETE" }
-                            );
-                            if (!res.ok && res.status !== 204) {
-                              alert("Failed to delete schedule");
-                              return;
+                            try {
+                              if (isOffline) {
+                                const local = readLocalSchedules();
+                                const updated = local.filter((row) => String(row.id) !== String(s.id));
+                                writeLocalSchedules(updated);
+                                setSchedules(updated);
+                                return;
+                              }
+                              const res = await requestWithFallback(
+                                `/schedules/${encodeURIComponent(String(s.id))}`,
+                                { method: "DELETE" }
+                              );
+                              if (!res.ok && res.status !== 204) {
+                                alert("Failed to delete schedule");
+                                return;
+                              }
+                              await refreshSchedules();
+                            } catch {
+                              setIsOffline(true);
+                              const local = readLocalSchedules();
+                              const updated = local.filter((row) => String(row.id) !== String(s.id));
+                              writeLocalSchedules(updated);
+                              setSchedules(updated);
                             }
-                            await refreshSchedules();
                           }}
                         >
                           Delete

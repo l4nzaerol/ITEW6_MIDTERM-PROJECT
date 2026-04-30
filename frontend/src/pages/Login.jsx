@@ -2,6 +2,11 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 
 const CREDENTIALS_KEY = "ccs_admin_credentials";
+const FALLBACK_ADMIN = {
+  username: "admin",
+  email: "admin@ccs.local",
+  password: "admin123",
+};
 
 function getApiCandidates() {
   return [
@@ -59,11 +64,24 @@ function readStoredCredentials() {
   }
 }
 
+function getActiveCredentials() {
+  return readStoredCredentials() || FALLBACK_ADMIN;
+}
+
+function credentialsMatch(usernameOrEmail, password, credentials) {
+  const login = String(usernameOrEmail || "").trim().toLowerCase();
+  const savedUsername = String(credentials?.username || "").trim().toLowerCase();
+  const savedEmail = String(credentials?.email || "").trim().toLowerCase();
+  const savedPassword = String(credentials?.password || "");
+  return (login === savedUsername || login === savedEmail) && String(password || "") === savedPassword;
+}
+
 function persistCredentials(username, password) {
   localStorage.setItem(
     CREDENTIALS_KEY,
     JSON.stringify({
       username: String(username || "").trim(),
+      email: FALLBACK_ADMIN.email,
       password: String(password || ""),
     })
   );
@@ -84,10 +102,10 @@ function Login() {
   const nav = useNavigate();
 
   const [isRegister, setIsRegister] = useState(false);
-  const storedCredentials = readStoredCredentials();
-  const [user, setUser] = useState(storedCredentials?.username || "");
+  const activeCredentials = getActiveCredentials();
+  const [user, setUser] = useState(activeCredentials.username || activeCredentials.email || "");
   const [email, setEmail] = useState("");
-  const [pass, setPass] = useState(storedCredentials?.password || "");
+  const [pass, setPass] = useState(activeCredentials.password || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -123,12 +141,8 @@ function Login() {
         }
       }
 
-      const localCredentials = readStoredCredentials();
-      if (
-        localCredentials &&
-        localCredentials.username === normalizedUser &&
-        localCredentials.password === enteredPassword
-      ) {
+      const localCredentials = getActiveCredentials();
+      if (credentialsMatch(normalizedUser, enteredPassword, localCredentials)) {
         authenticateLocally(normalizedUser);
         nav("/dashboard");
         return;
@@ -158,21 +172,17 @@ function Login() {
       localStorage.setItem("ccs_user", JSON.stringify(authUser));
       nav("/dashboard");
     } catch (err) {
-      const localCredentials = readStoredCredentials();
+      const localCredentials = getActiveCredentials();
       const normalizedUser = String(user || "").trim();
       const enteredPassword = String(pass || "");
-      if (
-        localCredentials &&
-        localCredentials.username === normalizedUser &&
-        localCredentials.password === enteredPassword
-      ) {
+      if (credentialsMatch(normalizedUser, enteredPassword, localCredentials)) {
         authenticateLocally(normalizedUser);
         nav("/dashboard");
         return;
       }
       setError(
         err instanceof Error
-          ? `${err.message} (Tip: register once to save local admin credentials for Vercel frontend-only login.)`
+          ? `${err.message} (Use admin@ccs.local / admin123 for Vercel frontend-only login.)`
           : "Authentication failed."
       );
     } finally {
